@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>学生健康报告</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 2cm;
+        }
+        body {
+            font-family: "SimSun", "Arial", sans-serif; /* Use a font that supports Chinese if possible, or rely on system fonts */
+            line-height: 1.6;
+            color: #333;
+        }
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            border-bottom: 2px solid #2c3e50;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #34495e;
+            margin-top: 30px;
+            border-left: 5px solid #3498db;
+            padding-left: 10px;
+        }
+        .info-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        .info-table th, .info-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        .info-table th {
+            background-color: #f2f2f2;
+            width: 30%;
+        }
+        .log-entry {
+            background-color: #f9f9f9;
+            border: 1px solid #eee;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+        }
+        .log-header {
+            font-weight: bold;
+            color: #2980b9;
+            margin-bottom: 10px;
+            border-bottom: 1px dashed #ccc;
+            padding-bottom: 5px;
+        }
+        .footer {
+            margin-top: 50px;
+            text-align: center;
+            font-size: 12px;
+            color: #7f8c8d;
+        }
+    </style>
+</head>
+<body>
+    <h1>学生健康与运动监测报告</h1>
+    
+    <div class="section">
+        <h2>一、基本信息</h2>
+        <table class="info-table">
+            <tr>
+                <th>姓名</th>
+                <td>{{ user.real_name or user.username }}</td>
+            </tr>
+            <tr>
+                <th>性别</th>
+                <td>{{ '男' if profile.gender == 'male' else '女' }}</td>
+            </tr>
+            <tr>
+                <th>年龄</th>
+                <td>{{ profile.age }} 岁</td>
+            </tr>
+            <tr>
+                <th>身高</th>
+                <td>{{ profile.height_cm }} cm</td>
+            </tr>
+            <tr>
+                <th>体重</th>
+                <td>{{ profile.weight_kg }} kg</td>
+            </tr>
+            <tr>
+                <th>BMI</th>
+                <td>{{ profile.bmi }}</td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>二、身体指标分析</h2>
+        <table class="info-table">
+            <tr>
+                <th>体脂率</th>
+                <td>{{ profile.body_fat_percent }}% ({{ profile.body_fat_category }})</td>
+            </tr>
+            <tr>
+                <th>基础代谢率 (BMR)</th>
+                <td>{{ profile.bmr }} kcal</td>
+            </tr>
+            <tr>
+                <th>腰臀比 (WHR)</th>
+                <td>{{ profile.whr }}</td>
+            </tr>
+            <tr>
+                <th>体型评价</th>
+                <td>{{ profile.weight_category }}</td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>三、近期日志记录 (最近30天)</h2>
+        {% if logs %}
+            {% for log in logs %}
+            <div class="log-entry">
+                <div class="log-header">日期: {{ log.log_date }}</div>
+                <table class="info-table">
+                    <tr>
+                        <th>摄入热量</th>
+                        <td>{{ log.calorie_intake }} kcal</td>
+                    </tr>
+                    <tr>
+                        <th>运动消耗</th>
+                        <td>{{ log.calorie_expenditure }} kcal</td>
+                    </tr>
+                    <tr>
+                        <th>当日体重</th>
+                        <td>{{ log.daily_weight }} kg</td>
+                    </tr>
+                    <tr>
+                        <th>AI 建议</th>
+                        <td>{{ log.ai_suggestions or '无' }}</td>
+                    </tr>
+                </table>
+            </div>
+            {% endfor %}
+        {% else %}
+            <p>暂无近期日志记录。</p>
+        {% endif %}
+    </div>
+
+    <div class="footer">
+        <p>报告生成时间: {{ generated_at }}</p>
+        <p>本报告由系统自动生成，仅供参考。</p>
+    </div>
+</body>
+</html>
