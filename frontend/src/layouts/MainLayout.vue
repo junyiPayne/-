@@ -19,7 +19,7 @@
       </div>
       <div class="header-right">
         <el-button 
-          type="success" 
+          type="primary" 
           size="small" 
           @click="handlePreviewReport" 
           :loading="previewing"
@@ -28,7 +28,7 @@
           预览报告
         </el-button>
         <el-button 
-          type="primary" 
+          type="success" 
           size="small" 
           @click="handleSubmitReport" 
           :loading="submitting"
