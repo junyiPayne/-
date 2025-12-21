@@ -42,7 +42,7 @@
         <el-form-item label="搜索">
           <el-input
             v-model="searchKeyword"
-            placeholder="用户名/邮箱"
+            placeholder="账号（学号）/邮箱"
             clearable
             @keyup.enter="handleSearch"
           />
@@ -54,7 +54,7 @@
 
       <el-table :data="users" v-loading="loading" border>
         <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="username" label="用户名" />
+        <el-table-column prop="username" label="账号（学号）" />
         <el-table-column prop="email" label="邮箱" />
         <el-table-column prop="real_name" label="真实姓名" />
         <el-table-column prop="role_name" label="角色" />
@@ -70,24 +70,28 @@
             </template>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="300">
+        <el-table-column label="操作" width="400" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="handleEdit(row)">编辑</el-button>
-            <!-- 查看报告按钮：管理员可以查看所有，老师只能查看学生 -->
-            <el-button 
-              v-if="canViewReports(row)"
-              size="small" 
-              type="primary" 
-              @click="handleViewReports(row)"
-            >查看报告</el-button>
-            <!-- 教师特有操作 -->
-            <el-button 
-              v-if="authStore.user?.role_code === 'teacher'" 
-              size="small" 
-              type="warning" 
-              @click="handleResetStudent(row)"
-            >重置学生</el-button>
-            <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+            <div class="action-buttons">
+              <el-button-group>
+                <el-button size="small" @click="handleEdit(row)">编辑</el-button>
+                <!-- 查看报告按钮：管理员可以查看所有，老师只能查看学生 -->
+                <el-button 
+                  v-if="canViewReports(row)"
+                  size="small" 
+                  type="primary" 
+                  @click="handleViewReports(row)"
+                >查看报告</el-button>
+              </el-button-group>
+              <!-- 教师和管理员特有操作 -->
+              <el-button 
+                v-if="authStore.user?.role_code === 'teacher' || authStore.user?.role_code === 'admin'" 
+                size="small" 
+                type="warning" 
+                @click="handleResetStudent(row)"
+              >重置学生</el-button>
+              <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -106,7 +110,7 @@
         :rules="rules"
         label-width="80px"
       >
-        <el-form-item label="用户名" prop="username">
+        <el-form-item label="账号（学号）" prop="username">
           <el-input v-model="userForm.username" :disabled="isEdit" />
         </el-form-item>
         <el-form-item label="密码" prop="password" v-if="!isEdit">
@@ -232,8 +236,19 @@ const userForm = reactive({
   role_id: 2
 })
 
+// 验证用户名格式：只能包含字母和数字
+const validateUsername = (rule, value, callback) => {
+  if (!value) {
+    callback(new Error('请输入账号（学号）'))
+  } else if (!/^[a-zA-Z0-9]+$/.test(value)) {
+    callback(new Error('账号（学号）只能输入字母和数字'))
+  } else {
+    callback()
+  }
+}
+
 const rules = {
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
+  username: [{ required: true, validator: validateUsername, trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
   email: [
     { required: true, message: '请输入邮箱', trigger: 'blur' },
@@ -530,6 +545,23 @@ onMounted(() => {
 
 .search-form {
   margin-bottom: 20px;
+}
+
+.action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.action-buttons .el-button,
+.action-buttons .el-button-group {
+  margin: 0;
+}
+
+.action-buttons .el-button-group .el-button {
+  margin-left: 0;
 }
 </style>
 

@@ -17,13 +17,33 @@ bp = Blueprint('auth', __name__)
 @bp.route('/register', methods=['POST'])
 def register():
     """用户注册"""
+    import re
     data = request.get_json()
     
+    # 检查维护模式：维护模式下禁止注册
+    maintenance_setting = SystemSetting.query.filter_by(key='maintenance_mode').first()
+    if maintenance_setting and maintenance_setting.value == 'true':
+        raise AuthenticationError("系统维护中，请耐心等候")
+    
     # 验证必填字段
-    required_fields = ['username', 'email', 'password', 'role']
+    required_fields = ['username', 'email', 'password', 'role', 'real_name']
     for field in required_fields:
         if not data.get(field):
             raise ValidationError(f"{field}不能为空")
+    
+    # 验证用户名格式：只能包含字母和数字
+    username = data['username'].strip()
+    if not re.match(r'^[a-zA-Z0-9]+$', username):
+        raise ValidationError("账号（学号）只能输入字母和数字")
+    
+    # 验证真实姓名格式：只能包含中文字符
+    real_name = data['real_name'].strip()
+    if not re.match(r'^[\u4e00-\u9fa5]+$', real_name):
+        raise ValidationError("真实姓名只能输入中文字符")
+    
+    # 验证密码不能为空
+    if not data['password'] or not data['password'].strip():
+        raise ValidationError("密码不能为空")
     
     # 验证角色是否合法
     allowed_roles = ['student', 'teacher']
@@ -31,8 +51,8 @@ def register():
         raise ValidationError("无效的角色类型")
 
     # 检查用户名是否已存在
-    if User.query.filter_by(username=data['username']).first():
-        raise ValidationError("用户名已存在")
+    if User.query.filter_by(username=username).first():
+        raise ValidationError("账号（学号）已存在")
     
     # 检查邮箱是否已存在
     if User.query.filter_by(email=data['email']).first():
@@ -40,9 +60,9 @@ def register():
     
     # 创建用户
     user = User(
-        username=data['username'],
+        username=username,
         email=data['email'],
-        real_name=data.get('real_name')
+        real_name=real_name
     )
     user.set_password(data['password'])
     
@@ -63,27 +83,48 @@ def register():
 @bp.route('/login', methods=['POST'])
 def login():
     """用户登录"""
+    import re
     data = request.get_json()
     
-    if not data.get('username') or not data.get('password'):
-        raise ValidationError("用户名和密码不能为空")
+    username = data.get('username', '').strip()
+    password = data.get('password', '').strip()
     
-    # 查找用户
-    user = User.query.filter_by(username=data['username']).first()
+    if not username:
+        raise ValidationError("账号（学号）不能为空")
+    if not password:
+        raise ValidationError("密码不能为空")
     
-    if not user or not user.check_password(data['password']):
-        raise AuthenticationError("用户名或密码错误")
+    # 验证用户名格式：只能包含字母和数字
+    if not re.match(r'^[a-zA-Z0-9]+$', username):
+        raise ValidationError("账号（学号）只能输入字母和数字")
+    
+    # 先检查维护模式（在验证账号密码之前）
+    maintenance_setting = SystemSetting.query.filter_by(key='maintenance_mode').first()
+    is_maintenance = maintenance_setting and maintenance_setting.value == 'true'
+    
+    # 查找用户（需要先查找用户以判断是否是管理员）
+    user = User.query.filter_by(username=username).first()
+    
+    # 如果是维护模式，且不是管理员账号，直接返回维护提示
+    if is_maintenance:
+        # 如果用户不存在，直接返回维护提示
+        if not user:
+            raise AuthenticationError("系统维护中，请耐心等候")
+        
+        # 如果用户存在，检查是否是管理员
+        # 如果是管理员，继续验证密码；如果不是管理员，直接返回维护提示
+        if not user.role or user.role.code != 'admin':
+            raise AuthenticationError("系统维护中，请耐心等候")
+    
+    # 区分账号不存在和密码错误（仅在非维护模式或管理员时执行）
+    if not user:
+        raise AuthenticationError("账号不存在，请注册")
+    
+    if not user.check_password(password):
+        raise AuthenticationError("密码错误")
     
     if not user.is_active:
         raise AuthenticationError("账号已被禁用")
-    
-    # 检查维护模式
-    maintenance_setting = SystemSetting.query.filter_by(key='maintenance_mode').first()
-    if maintenance_setting and maintenance_setting.value == 'true':
-        # 如果是维护模式，仅允许管理员登录
-        # 确保role已加载
-        if not user.role or user.role.code != 'admin':
-             raise AuthenticationError("系统维护中，请等待系统维护完成")
 
     # 生成Token
     access_token = create_access_token(identity=str(user.id))

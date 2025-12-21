@@ -34,7 +34,9 @@ export const useAuthStore = defineStore('auth', () => {
       ElMessage.success('登录成功')
       return response
     } catch (error) {
-      ElMessage.error(error.response?.data?.message || '登录失败')
+      // 401错误（账号不存在、密码错误）的消息已经在request.js拦截器中显示
+      // 这里不再重复显示，直接抛出错误
+      // 如果是网络错误等特殊情况，request.js拦截器也会处理
       throw error
     }
   }

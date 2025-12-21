@@ -89,7 +89,13 @@ request.interceptors.response.use(
           ElMessage.error(errorMessage || '请求参数错误')
           break
         case 401:
-          ElMessage.error('未授权，请先登录')
+          // 401错误显示后端返回的具体消息
+          // 优先显示后端返回的具体错误消息
+          if (errorMessage) {
+            ElMessage.error(errorMessage)
+          } else {
+            ElMessage.error('未授权，请先注册')
+          }
           localStorage.removeItem('token')
           router.push('/login')
           break
