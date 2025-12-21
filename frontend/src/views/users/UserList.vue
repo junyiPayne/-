@@ -401,7 +401,7 @@ const handleBackup = async () => {
     })
     
     const res = await createBackup()
-    ElMessage.success(`备份成功: ${res.data.filename}`)
+    ElMessage.success(`备份成功，文件名为: ${res.data.filename}`)
   } catch (error) {
     if (error !== 'cancel') {
       ElMessage.error(error.response?.data?.message || '备份失败')
