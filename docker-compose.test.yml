@@ -1,0 +1,56 @@
+# BS系统 - Docker Compose 测试配置
+# 用于本地测试部署，使用 SQLite 数据库
+
+name: bs-system-test
+
+services:
+  # 后端服务
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bs-system-backend-test
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      - FLASK_ENV=production
+      - SECRET_KEY=test-secret-key-change-in-production-12345
+      - JWT_SECRET_KEY=test-jwt-secret-key-change-in-production-12345
+      - DB_TYPE=sqlite
+      - DATABASE_URL=sqlite:///bs_system.db
+      - CORS_ORIGINS=http://localhost:8080,http://localhost:3000,http://localhost:80
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - QWEN_API_KEY=${QWEN_API_KEY:-}
+      - AI_PROVIDER=deepseek
+    volumes:
+      - ./backend/instance:/app/instance
+      - ./backend/app/static:/app/app/static
+      - ./backend/logs:/app/logs
+    networks:
+      - bs-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Nginx 反向代理（用于服务前端）
+  nginx:
+    image: nginx:alpine
+    container_name: bs-system-nginx-test
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./frontend/dist:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+    networks:
+      - bs-network
+
+networks:
+  bs-network:
+    driver: bridge

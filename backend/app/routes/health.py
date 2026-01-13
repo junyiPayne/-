@@ -2,6 +2,7 @@
 from flask import Blueprint, jsonify
 from app import db
 from datetime import datetime
+from sqlalchemy import text
 import os
 
 bp = Blueprint('health', __name__)
@@ -11,7 +12,7 @@ def health_check():
     """健康检查接口"""
     try:
         # 检查数据库连接
-        db.session.execute('SELECT 1')
+        db.session.execute(text('SELECT 1'))
         db_status = 'healthy'
     except Exception as e:
         db_status = f'unhealthy: {str(e)}'
@@ -43,7 +44,7 @@ def readiness_check():
     """就绪检查接口（用于Kubernetes等容器编排）"""
     try:
         # 检查数据库连接
-        db.session.execute('SELECT 1')
+        db.session.execute(text('SELECT 1'))
         return jsonify({
             'status': 'ready',
             'timestamp': datetime.utcnow().isoformat()

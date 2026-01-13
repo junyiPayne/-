@@ -23,7 +23,6 @@ def create_app(config_name=None):
         config[config_name].init_app(app)
     
     # 初始化扩展
-    # SQLAlchemy 连接池配置通过 SQLALCHEMY_ENGINE_OPTIONS 自动应用
     db.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)

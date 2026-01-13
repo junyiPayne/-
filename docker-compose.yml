@@ -1,7 +1,7 @@
 # BS系统 - Docker Compose 配置
 # 用于快速部署整个系统
 
-version: '3.8'
+name: bs-system
 
 services:
   # 后端服务
@@ -87,5 +87,5 @@ volumes:
     driver: local
 
 networks:
-  bs-system-network:
+  bs-network:
     driver: bridge

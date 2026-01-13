@@ -15,11 +15,10 @@
             <div class="avatar-wrapper">
               <el-upload
                 class="avatar-uploader"
-                action="/api/profile/avatar"
+                :auto-upload="false"
                 :show-file-list="false"
-                :on-success="handleAvatarSuccess"
+                :on-change="handleAvatarChange"
                 :before-upload="beforeAvatarUpload"
-                :headers="uploadHeaders"
               >
                 <div v-if="avatarUrl" class="avatar-container">
                   <img :src="avatarUrl" class="avatar" />
@@ -208,12 +207,14 @@
 import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, QuestionFilled, Camera } from '@element-plus/icons-vue'
-import { getProfile, createProfile, updateProfile } from '@/api/profile'
+import { getProfile, createProfile, updateProfile, uploadAvatar } from '@/api/profile'
 
 const formRef = ref(null)
 const loading = ref(false)
 const profile = ref(null)
 const avatarUrl = ref('')
+const originalAvatarUrl = ref('') // 保存原始头像URL，用于取消时恢复
+const pendingAvatarFile = ref(null) // 待上传的头像文件
 const calculatedData = ref(null)
 
 const formData = reactive({
@@ -330,22 +331,6 @@ const handleBirthdayChange = (val) => {
   // 年龄计算由 watcher 处理，此处可扩展其他逻辑
 }
 
-const uploadHeaders = computed(() => {
-  const token = localStorage.getItem('token')
-  return {
-    Authorization: `Bearer ${token}`
-  }
-})
-
-const handleAvatarSuccess = (response, uploadFile) => {
-  if (response.code === 200) {
-    avatarUrl.value = response.data.url
-    ElMessage.success('头像上传成功')
-  } else {
-    ElMessage.error(response.message || '上传失败')
-  }
-}
-
 const beforeAvatarUpload = (rawFile) => {
   if (rawFile.type !== 'image/jpeg' && rawFile.type !== 'image/png') {
     ElMessage.error('头像必须是 JPG 或 PNG 格式!')
@@ -357,6 +342,16 @@ const beforeAvatarUpload = (rawFile) => {
   return true
 }
 
+const handleAvatarChange = (file) => {
+  // 只预览，不立即上传
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    avatarUrl.value = e.target.result // 使用本地预览URL
+    pendingAvatarFile.value = file.raw // 保存文件对象，等待保存时上传
+  }
+  reader.readAsDataURL(file.raw)
+}
+
 const loadProfile = async () => {
   try {
     const response = await getProfile()
@@ -364,7 +359,12 @@ const loadProfile = async () => {
       profile.value = response.data.data
       if (response.data.data.avatar) {
         avatarUrl.value = response.data.data.avatar
+        originalAvatarUrl.value = response.data.data.avatar // 保存原始头像
+      } else {
+        originalAvatarUrl.value = ''
       }
+      // 重置待上传的文件
+      pendingAvatarFile.value = null
       Object.assign(formData, {
         real_name: response.data.data.real_name || '',
         gender: response.data.data.gender,
@@ -379,6 +379,8 @@ const loadProfile = async () => {
       calculatedData.value = response.data.data
     } else {
       profile.value = null
+      originalAvatarUrl.value = ''
+      pendingAvatarFile.value = null
     }
   } catch (error) {
     if (error.response?.data?.message !== '档案不存在，请先创建') {
@@ -394,6 +396,22 @@ const handleSubmit = async () => {
     if (valid) {
       loading.value = true
       try {
+        // 如果有待上传的头像，先上传头像
+        if (pendingAvatarFile.value) {
+          try {
+            const avatarResponse = await uploadAvatar(pendingAvatarFile.value)
+            if (avatarResponse.data && avatarResponse.data.data) {
+              // 头像上传成功，继续保存其他信息
+              pendingAvatarFile.value = null
+            }
+          } catch (error) {
+            ElMessage.error(error.response?.data?.message || '头像上传失败')
+            loading.value = false
+            return
+          }
+        }
+        
+        // 保存或更新档案
         if (profile.value) {
           await updateProfile(formData)
           ElMessage.success('档案更新成功')
