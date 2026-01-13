@@ -18,13 +18,19 @@ def create_app(config_name=None):
     config_name = config_name or os.environ.get('FLASK_ENV', 'development')
     app.config.from_object(config[config_name])
     
+    # 生产环境初始化
+    if config_name == 'production' and hasattr(config[config_name], 'init_app'):
+        config[config_name].init_app(app)
+    
     # 初始化扩展
+    # SQLAlchemy 连接池配置通过 SQLALCHEMY_ENGINE_OPTIONS 自动应用
     db.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
     CORS(app, resources={r"/api/*": {"origins": app.config['CORS_ORIGINS']}})
     
     # 注册蓝图
+    from app.routes.health import bp as health_bp
     from app.routes.auth import bp as auth_bp
     from app.routes.users import bp as users_bp
     from app.routes.roles import bp as roles_bp
@@ -35,6 +41,9 @@ def create_app(config_name=None):
     from app.routes.admin import bp as admin_bp
     from app.routes.report import report_bp
     
+    # 健康检查路由（不需要认证）
+    app.register_blueprint(health_bp, url_prefix='/api')
+    # 其他业务路由
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(users_bp, url_prefix='/api/users')
     app.register_blueprint(roles_bp, url_prefix='/api/roles')

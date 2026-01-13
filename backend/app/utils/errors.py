@@ -58,11 +58,20 @@ def register_error_handlers(app):
         """处理所有未捕获的异常"""
         if isinstance(e, HTTPException):
             return e
-            
+        
+        # 记录详细错误信息到日志
         logger.error(f"Unhandled Exception: {e}", exc_info=True)
+        
+        # 生产环境不暴露详细错误信息
+        is_production = not app.config.get('DEBUG', False)
+        if is_production:
+            error_message = "服务器内部错误，请稍后重试"
+        else:
+            error_message = f"服务器内部错误: {str(e)}"
+        
         return jsonify({
             'code': 500,
-            'message': f"服务器内部错误: {str(e)}",
+            'message': error_message,
             'timestamp': datetime.utcnow().isoformat()
         }), 500
 
