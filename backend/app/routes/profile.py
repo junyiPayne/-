@@ -30,7 +30,7 @@ def allowed_file(filename):
 @bp.route('/avatar', methods=['POST'])
 @login_required
 def upload_avatar():
-    """上传头像"""
+    """上传头像（只保存文件，不立即更新用户头像）"""
     if 'file' not in request.files:
         raise ValidationError("没有文件部分")
     file = request.files['file']
@@ -57,15 +57,12 @@ def upload_avatar():
             # 调整大小为 400x400
             image = image.resize((400, 400), Image.Resampling.LANCZOS)
             
-            # 保存
+            # 保存文件
             image.save(filepath, 'JPEG', quality=85)
             
-            # 更新用户头像
-            user_id = get_jwt_identity()
-            user = User.query.get(user_id)
+            # 只返回文件URL，不立即更新用户头像
+            # 头像更新将在保存档案时进行
             file_url = f"/api/profile/avatar/{unique_filename}"
-            user.avatar = file_url
-            db.session.commit()
             
             return success_response(data={'url': file_url}, message="头像上传成功")
         except Exception as e:
@@ -128,11 +125,14 @@ def create_profile():
         except ValueError:
             pass # Ignore invalid date format
             
-    # 更新真实姓名
-    if 'real_name' in data:
-        user = User.query.get(user_id)
-        if user:
+    # 更新真实姓名和头像
+    user = User.query.get(user_id)
+    if user:
+        if 'real_name' in data:
             user.real_name = data['real_name']
+        # 如果传入了头像URL，更新用户头像
+        if 'avatar' in data and data['avatar']:
+            user.avatar = data['avatar']
 
     # 计算各项指标
     try:
@@ -161,11 +161,14 @@ def update_profile():
         except ValueError:
             pass
             
-    # 更新真实姓名
-    if 'real_name' in data:
-        user = User.query.get(user_id)
-        if user:
+    # 更新真实姓名和头像
+    user = User.query.get(user_id)
+    if user:
+        if 'real_name' in data:
             user.real_name = data['real_name']
+        # 如果传入了头像URL，更新用户头像
+        if 'avatar' in data and data['avatar']:
+            user.avatar = data['avatar']
             
     # 更新字段
     if 'gender' in data:

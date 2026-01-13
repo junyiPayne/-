@@ -31,6 +31,12 @@ services:
       - ./backend/instance:/app/instance
       - ./backend/app/static:/app/app/static
       - ./backend/logs:/app/logs
+      # 挂载代码目录，代码修改立即生效（开发模式）
+      - ./backend/app:/app/app
+      - ./backend/config.py:/app/config.py
+      - ./backend/run.py:/app/run.py
+      - ./backend/init_database.py:/app/init_database.py
+      - ./backend/wsgi.py:/app/wsgi.py
     depends_on:
       - db
     networks:
@@ -75,7 +81,6 @@ services:
       - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./backend/app/static:/usr/share/nginx/html/static:ro
       - ./frontend/dist:/usr/share/nginx/html:ro
     depends_on:
       - backend

@@ -24,5 +24,43 @@ export default {
   padding: 0;
   box-sizing: border-box;
 }
+
+/* 打印样式 */
+@media print {
+  /* 隐藏不需要打印的元素 */
+  .header, 
+  .sidebar, 
+  .el-header, 
+  .el-aside,
+  .el-button:not(.print-visible),
+  .export-controls,
+  .action-area {
+    display: none !important;
+  }
+
+  /* 调整主要内容区域 */
+  .el-main,
+  .main-content {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    background-color: #fff !important;
+  }
+
+  /* 强制打印背景色和颜色 */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* 移除阴影和边框，更适合打印 */
+  .el-card {
+    box-shadow: none !important;
+    border: 1px solid #eee !important;
+  }
+}
 </style>
 

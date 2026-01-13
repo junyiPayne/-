@@ -19,6 +19,7 @@
                 :show-file-list="false"
                 :on-change="handleAvatarChange"
                 :before-upload="beforeAvatarUpload"
+                :http-request="handleAvatarRequest"
               >
                 <div v-if="avatarUrl" class="avatar-container">
                   <img :src="avatarUrl" class="avatar" />
@@ -339,17 +340,31 @@ const beforeAvatarUpload = (rawFile) => {
     ElMessage.error('头像大小不能超过 2MB!')
     return false
   }
-  return true
+  // 返回 false 阻止自动上传（即使设置了 auto-upload="false"，这里也返回 false 更安全）
+  return false
 }
 
 const handleAvatarChange = (file) => {
   // 只预览，不立即上传
+  if (!file.raw) return
+  
   const reader = new FileReader()
   reader.onload = (e) => {
     avatarUrl.value = e.target.result // 使用本地预览URL
     pendingAvatarFile.value = file.raw // 保存文件对象，等待保存时上传
   }
+  reader.onerror = () => {
+    ElMessage.error('图片读取失败')
+  }
   reader.readAsDataURL(file.raw)
+}
+
+// 自定义上传方法（即使设置了 auto-upload="false"，也提供一个空实现作为保险）
+const handleAvatarRequest = (options) => {
+  // 这个方法不应该被调用（因为 auto-upload="false"）
+  // 但如果被调用，我们也不执行任何操作
+  console.warn('handleAvatarRequest 被调用，但应该被禁用')
+  return Promise.reject(new Error('自动上传已禁用，请点击保存按钮'))
 }
 
 const loadProfile = async () => {
@@ -397,11 +412,13 @@ const handleSubmit = async () => {
       loading.value = true
       try {
         // 如果有待上传的头像，先上传头像
+        let avatarUrlToSave = null
         if (pendingAvatarFile.value) {
           try {
             const avatarResponse = await uploadAvatar(pendingAvatarFile.value)
             if (avatarResponse.data && avatarResponse.data.data) {
-              // 头像上传成功，继续保存其他信息
+              // 头像上传成功，保存URL用于后续更新档案
+              avatarUrlToSave = avatarResponse.data.data.url
               pendingAvatarFile.value = null
             }
           } catch (error) {
@@ -411,12 +428,18 @@ const handleSubmit = async () => {
           }
         }
         
+        // 准备要保存的数据，如果上传了头像，包含头像URL
+        const dataToSave = { ...formData }
+        if (avatarUrlToSave) {
+          dataToSave.avatar = avatarUrlToSave
+        }
+        
         // 保存或更新档案
         if (profile.value) {
-          await updateProfile(formData)
+          await updateProfile(dataToSave)
           ElMessage.success('档案更新成功')
         } else {
-          await createProfile(formData)
+          await createProfile(dataToSave)
           ElMessage.success('档案创建成功')
         }
         await loadProfile()

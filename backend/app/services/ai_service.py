@@ -19,8 +19,12 @@ class AIService:
         """
         # 检查API Key配置，如果没有配置则使用模拟模式
         if not self.deepseek_api_key and not self.qianwen_api_key:
-            print("未检测到API Key，使用本地模拟模式")
+            print("⚠️ 未检测到API Key，使用本地模拟模式")
             return self._generate_simulation_response(profile_data, log_data, weeks)
+
+        # 打印API Key状态（仅显示前8个字符，保护隐私）
+        api_key_preview = (self.deepseek_api_key[:8] + "..." if self.deepseek_api_key else "未配置")
+        print(f"✅ 使用 {self.provider} API，Key: {api_key_preview}")
 
         prompt = self._build_assessment_prompt(profile_data, log_data, weeks)
         
@@ -30,9 +34,14 @@ class AIService:
             else:
                 response = self._call_qianwen_api(prompt)
             
-            return self._parse_ai_response(response)
+            print(f"✅ AI API调用成功，响应长度: {len(response)} 字符")
+            parsed_response = self._parse_ai_response(response)
+            print(f"✅ 解析后建议数量: {len(parsed_response.get('suggestions', []))} 条")
+            return parsed_response
         except Exception as e:
-            print(f"AI API调用失败: {str(e)}，切换至模拟模式")
+            print(f"❌ AI API调用失败: {str(e)}，切换至模拟模式")
+            import traceback
+            print(f"详细错误: {traceback.format_exc()}")
             return self._generate_simulation_response(profile_data, log_data, weeks)
 
     def analyze_daily_log(self, profile_data, log_data):
@@ -221,17 +230,47 @@ class AIService:
     
     def _build_assessment_prompt(self, profile_data, log_data, weeks):
         """构建AI提示词"""
-        prompt = f"""【角色】你是一位运动生理学家兼注册营养师。
+        prompt = f"""【角色】你是一位资深的运动生理学家兼注册营养师，拥有10年以上临床经验。
 
-【任务】根据以下每日膳食与运动数据，预测{weeks}周后体重、体脂、潜在风险，用中文给3条建议，每点 ≤ 50 字。
+【任务】根据以下干预方案数据，预测{weeks}周后的体重和体脂变化，并给出专业、详细、可操作的健康建议。
 
-【数据】
-- 用户档案: BMI={profile_data.get('bmi')}, 年龄={profile_data.get('age')}, 目标={profile_data.get('goal')}
-- 每日平均: 摄入={log_data.get('avg_daily_intake', 0)}kcal, 消耗={log_data.get('avg_daily_expenditure', 0)}kcal
-- 营养比例: 碳水={log_data.get('carb_percent', 0)}%, 蛋白质={log_data.get('protein_percent', 0)}%, 脂肪={log_data.get('fat_percent', 0)}%
-- 运动情况: 日均运动时长={log_data.get('exercise_duration', 0)}分钟
+【用户基本信息】
+- 年龄: {profile_data.get('age', '未知')}岁
+- 性别: {profile_data.get('gender', '未知')}
+- 当前BMI: {profile_data.get('bmi', '未知')}
+- 当前体重: {profile_data.get('weight_kg', '未知')}kg
+- 基础代谢率(BMR): {profile_data.get('bmr', '未知')}kcal
+- 健康目标: {profile_data.get('goal', '未设定')}
 
-【输出】{{ "weight": "±x.x kg", "fat": "±x.x %", "risks": [], "suggestions": [] }}"""
+【干预方案参数】
+- 每日热量摄入: {log_data.get('avg_daily_intake', log_data.get('calorie_intake', 0))}kcal
+- 每日热量消耗: {log_data.get('avg_daily_expenditure', log_data.get('calorie_expenditure', 0))}kcal
+- 热量平衡: {log_data.get('avg_daily_intake', log_data.get('calorie_intake', 0)) - log_data.get('avg_daily_expenditure', log_data.get('calorie_expenditure', 0))}kcal/天
+- 营养素比例: 碳水化合物 {log_data.get('carb_percent', 0)}%, 蛋白质 {log_data.get('protein_percent', 0)}%, 脂肪 {log_data.get('fat_percent', 0)}%
+- 膳食纤维: {log_data.get('fiber_grams', 0)}g/天
+- 酒精摄入: {log_data.get('alcohol_grams', 0)}g/天
+- 运动频率: {log_data.get('aerobic_freq', log_data.get('exercise_frequency', 0))}次/周
+- 运动强度: {log_data.get('aerobic_intensity', '中等')}
+- 运动时长: {log_data.get('exercise_duration', 0)}分钟/次
+- 日常步数: {log_data.get('steps', 0)}步/天
+
+【要求】
+1. 基于能量平衡原理（7700kcal = 1kg体重），计算{weeks}周后的体重变化
+2. 考虑代谢适应、肌肉保留等因素，给出体脂率变化预测
+3. 识别至少3-5个潜在健康风险（如热量不足、营养素失衡、运动过度等）
+4. 提供5-8条详细、可操作的专业建议，每条建议30-80字，涵盖：
+   - 饮食调整建议（具体食物推荐、进餐时间等）
+   - 运动优化建议（运动类型、强度、频率等）
+   - 生活方式建议（睡眠、压力管理、恢复等）
+   - 监测指标建议（需要关注的健康指标）
+
+【输出格式】严格使用JSON格式：
+{{
+  "weight": "±x.x kg",
+  "fat": "±x.x %",
+  "risks": ["风险1（详细描述）", "风险2", "风险3", ...],
+  "suggestions": ["建议1（具体可操作）", "建议2", "建议3", "建议4", "建议5", ...]
+}}"""
         return prompt
     
     def _call_deepseek_api(self, prompt):
@@ -252,11 +291,25 @@ class AIService:
             "temperature": 0.7
         }
         
+        print(f"📤 正在调用 DeepSeek API，提示词长度: {len(prompt)} 字符")
         response = requests.post(url, headers=headers, json=data, timeout=30)
-        response.raise_for_status()
+        
+        # 检查HTTP状态码
+        if response.status_code != 200:
+            error_msg = f"HTTP {response.status_code}: {response.text[:200]}"
+            print(f"❌ API调用失败: {error_msg}")
+            response.raise_for_status()
+        
         result = response.json()
         
-        return result['choices'][0]['message']['content']
+        # 检查API返回的错误
+        if 'error' in result:
+            error_msg = result['error'].get('message', '未知错误')
+            raise ValueError(f"DeepSeek API错误: {error_msg}")
+        
+        content = result['choices'][0]['message']['content']
+        print(f"✅ DeepSeek API调用成功，返回内容长度: {len(content)} 字符")
+        return content
     
     def _call_qianwen_api(self, prompt):
         """调用通义千问API"""
@@ -293,20 +346,62 @@ class AIService:
                 response_text = response_text[:-3]
             response_text = response_text.strip()
             
+            # 尝试找到JSON部分
+            json_start = response_text.find('{')
+            json_end = response_text.rfind('}') + 1
+            if json_start != -1 and json_end > json_start:
+                response_text = response_text[json_start:json_end]
+            
             result = json.loads(response_text)
             
             # 兼容不同的key
             weight = result.get("weight") or result.get("weight_change") or "0 kg"
             fat = result.get("fat") or result.get("fat_change") or "0 %"
             
+            # 确保建议数量足够（至少5条）
+            suggestions = result.get("suggestions", [])
+            if isinstance(suggestions, list):
+                # 如果建议少于5条，补充通用建议
+                if len(suggestions) < 5:
+                    print(f"⚠️ AI返回的建议只有 {len(suggestions)} 条，补充通用建议")
+                    default_suggestions = [
+                        "保持均衡饮食，控制热量摄入",
+                        "适量运动，提高基础代谢率",
+                        "定期监测体重和身体指标变化",
+                        "保证充足睡眠，有助于代谢恢复",
+                        "保持良好心态，避免过度焦虑"
+                    ]
+                    suggestions.extend(default_suggestions[:5 - len(suggestions)])
+                # 限制最多8条，避免过多
+                suggestions = suggestions[:8]
+            else:
+                suggestions = [str(suggestions)]
+            
+            # 确保风险数量合理（至少2条，最多6条）
+            risks = result.get("risks", [])
+            if isinstance(risks, list):
+                if len(risks) < 2:
+                    risks.append("请定期监测身体指标变化")
+                risks = risks[:6]
+            else:
+                risks = [str(risks)] if risks else ["暂无明显风险"]
+            
             return {
                 "weight": weight,
                 "fat": fat,
-                "risks": result.get("risks", []),
-                "suggestions": result.get("suggestions", [])
+                "risks": risks,
+                "suggestions": suggestions
             }
-        except:
-            # 解析失败，返回默认响应
+        except json.JSONDecodeError as e:
+            # JSON解析失败，打印详细信息
+            print(f"❌ JSON解析失败: {str(e)}")
+            print(f"响应内容前500字符: {response_text[:500]}")
+            return self._get_default_response()
+        except Exception as e:
+            # 其他解析错误
+            print(f"❌ 解析AI响应时出错: {str(e)}")
+            import traceback
+            print(f"详细错误: {traceback.format_exc()}")
             return self._get_default_response()
     
     def _get_default_response(self):

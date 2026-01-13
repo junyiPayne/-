@@ -6,22 +6,29 @@ from app import db
 import os
 import json
 import hashlib
+import tempfile
+import io
 from datetime import datetime, timedelta
 from fpdf import FPDF  # type: ignore
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
 
 report_bp = Blueprint('report', __name__)
 
 def get_chinese_font_path():
     """Find a suitable Chinese font on the system."""
     candidates = [
+        '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+        '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
         '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
         '/System/Library/Fonts/STHeiti Light.ttc',
         '/System/Library/Fonts/STHeiti Medium.ttc',
         '/System/Library/Fonts/PingFang.ttc',
         '/System/Library/Fonts/Hiragino Sans GB.ttc',
         '/Library/Fonts/Arial Unicode.ttf',
-        '/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf',
-        '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc'
+        '/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf'
     ]
     
     for path in candidates:
@@ -31,6 +38,74 @@ def get_chinese_font_path():
             
     print("No Chinese font found in candidates")
     return None
+
+def generate_chart_image(linear_data, ai_data, weeks, current_weight):
+    """生成体重预测曲线图表，返回图片字节流"""
+    try:
+        # 设置中文字体
+        font_path = get_chinese_font_path()
+        if font_path:
+            try:
+                prop = fm.FontProperties(fname=font_path)
+                plt.rcParams['font.sans-serif'] = [prop.get_name()]
+            except:
+                pass
+        
+        plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+        
+        # 创建图表
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        # 生成X轴数据（周数）
+        x_data = list(range(weeks + 1))
+        x_labels = [f'第{i}周' if i == 0 else f'第{i}周' for i in range(weeks + 1)]
+        
+        # 绘制线性预测线
+        if linear_data and len(linear_data) == weeks + 1:
+            ax.plot(x_data, linear_data, '--', color='#409EFF', linewidth=2, 
+                   marker='o', markersize=4, label='线性预测 (能量平衡)')
+        
+        # 绘制AI修正预测线
+        if ai_data and len(ai_data) == weeks + 1:
+            ax.plot(x_data, ai_data, '-', color='#67C23A', linewidth=3,
+                   marker='s', markersize=5, label='AI 修正预测')
+        
+        # 设置图表样式
+        ax.set_xlabel('时间', fontsize=12)
+        ax.set_ylabel('体重 (kg)', fontsize=12)
+        ax.set_title('体重变化预测曲线', fontsize=14, fontweight='bold')
+        ax.legend(loc='best', fontsize=10)
+        ax.grid(True, alpha=0.3, linestyle='--')
+        ax.set_xticks(x_data)
+        ax.set_xticklabels(x_labels, rotation=0)
+        
+        # 设置Y轴范围，让图表更美观
+        if linear_data or ai_data:
+            all_values = []
+            if linear_data:
+                all_values.extend(linear_data)
+            if ai_data:
+                all_values.extend(ai_data)
+            if all_values:
+                min_val = min(all_values)
+                max_val = max(all_values)
+                margin = (max_val - min_val) * 0.1
+                ax.set_ylim([min_val - margin, max_val + margin])
+        
+        plt.tight_layout()
+        
+        # 保存到字节流
+        img_buffer = io.BytesIO()
+        plt.savefig(img_buffer, format='png', dpi=150, bbox_inches='tight')
+        img_buffer.seek(0)
+        plt.close()
+        
+        return img_buffer.getvalue()
+    except Exception as e:
+        print(f"Chart generation error: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 class HealthReportPDF(FPDF):
     def __init__(self):
@@ -86,7 +161,7 @@ class HealthReportPDF(FPDF):
         page_width = self.w - 2 * self.l_margin
         self.cell(page_width, 10, f'Page {self.page_no()}', 0, 0, 'C')
 
-def generate_pdf_fpdf(user, profile, logs):
+def generate_pdf_fpdf(user, profile, logs, simulation_data=None):
     pdf = HealthReportPDF()
     pdf.add_page()
     
@@ -127,16 +202,29 @@ def generate_pdf_fpdf(user, profile, logs):
         x_start = pdf.get_x()
         y_start = pdf.get_y()
         
-        # Label column - use larger font size instead of bold for Chinese
+        # Label column
         if has_chinese:
-            pdf.set_font('Chinese', '', 11)  # Slightly larger instead of bold
+            pdf.set_font('Chinese', '', 11)
         else:
-            pdf.set_font('Helvetica', 'B', 10)  # Use bold for non-Chinese
-        pdf.cell(col_width, 7, str(label), 0, 0, 'L')
+            pdf.set_font('Helvetica', 'B', 10)
+        
+        # Clean text to avoid unsupported characters if using Helvetica
+        label_str = str(label)
+        if not has_chinese:
+            label_str = label_str.encode('ascii', 'replace').decode('ascii')
+            
+        pdf.cell(col_width, 7, label_str, 0, 0, 'L')
         
         # Value column
-        pdf.set_font('Chinese', '', 10) if has_chinese else pdf.set_font('Helvetica', '', 10)
+        if has_chinese:
+            pdf.set_font('Chinese', '', 10)
+        else:
+            pdf.set_font('Helvetica', '', 10)
+            
         value_str = str(value)
+        if not has_chinese:
+            value_str = value_str.encode('ascii', 'replace').decode('ascii')
+            
         remaining_width = page_width - col_width
         
         # Check if value fits in remaining width
@@ -152,54 +240,192 @@ def generate_pdf_fpdf(user, profile, logs):
 
     # 1. Basic Info Section
     if has_chinese:
-        pdf.set_font('Chinese', '', 14)  # Larger size instead of bold
+        pdf.set_font('Chinese', '', 14)
+        title_1 = '一、基本信息'
     else:
         pdf.set_font('Helvetica', 'B', 13)
-    pdf.cell(page_width, 10, '一、基本信息', 0, 1, 'L')
-    pdf.set_font('Chinese', '', 10) if has_chinese else pdf.set_font('Helvetica', '', 10)
+        title_1 = 'I. Basic Information'
+    pdf.cell(page_width, 10, title_1, 0, 1, 'L')
+    
+    if has_chinese:
+        pdf.set_font('Chinese', '', 10)
+    else:
+        pdf.set_font('Helvetica', '', 10)
     pdf.ln(2)
     
     name = user.real_name or user.username
     gender_val = get_attr(profile, 'gender', None)
-    gender = "男" if gender_val == "male" else ("女" if gender_val == "female" else "未知")
+    if has_chinese:
+        gender = "男" if gender_val == "male" else ("女" if gender_val == "female" else "未知")
+        labels = ['姓名', '性别', '年龄', '身高', '体重', 'BMI']
+        age_unit = '岁'
+    else:
+        gender = "Male" if gender_val == "male" else ("Female" if gender_val == "female" else "Unknown")
+        labels = ['Name', 'Gender', 'Age', 'Height', 'Weight', 'BMI']
+        age_unit = 'years'
     
-    add_table_row('姓名', name)
-    add_table_row('性别', gender)
-    add_table_row('年龄', f'{get_attr(profile, "age")} 岁')
-    add_table_row('身高', f'{get_attr(profile, "height_cm")} cm')
-    add_table_row('体重', f'{get_attr(profile, "weight_kg")} kg')
-    add_table_row('BMI', get_attr(profile, "bmi"))
+    add_table_row(labels[0], name)
+    add_table_row(labels[1], gender)
+    add_table_row(labels[2], f'{get_attr(profile, "age")} {age_unit}')
+    add_table_row(labels[3], f'{get_attr(profile, "height_cm")} cm')
+    add_table_row(labels[4], f'{get_attr(profile, "weight_kg")} kg')
+    add_table_row(labels[5], get_attr(profile, "bmi"))
     
     pdf.ln(5)
 
     # 2. Body Indicators Section
     if has_chinese:
-        pdf.set_font('Chinese', '', 14)  # Larger size instead of bold
+        pdf.set_font('Chinese', '', 14)
+        title_2 = '二、身体指标分析'
     else:
         pdf.set_font('Helvetica', 'B', 13)
-    pdf.cell(page_width, 10, '二、身体指标分析', 0, 1, 'L')
-    pdf.set_font('Chinese', '', 10) if has_chinese else pdf.set_font('Helvetica', '', 10)
+        title_2 = 'II. Body Indicators Analysis'
+    pdf.cell(page_width, 10, title_2, 0, 1, 'L')
+    
+    if has_chinese:
+        pdf.set_font('Chinese', '', 10)
+    else:
+        pdf.set_font('Helvetica', '', 10)
     pdf.ln(2)
     
     body_fat_cat = get_attr(profile, "body_fat_category", "")
-    body_fat_text = f'{get_attr(profile, "body_fat_percent")}%'
-    if body_fat_cat and body_fat_cat != "未知":
-        body_fat_text += f' ({body_fat_cat})'
+    if has_chinese:
+        body_fat_text = f'{get_attr(profile, "body_fat_percent")}%'
+        if body_fat_cat and body_fat_cat != "未知":
+            body_fat_text += f' ({body_fat_cat})'
+        labels_2 = ['体脂率', '基础代谢率 (BMR)', '腰臀比 (WHR)', '体型评价']
+    else:
+        body_fat_text = f'{get_attr(profile, "body_fat_percent")}%'
+        if body_fat_cat and body_fat_cat != "Unknown":
+            body_fat_text += f' ({body_fat_cat})'
+        labels_2 = ['Body Fat', 'BMR', 'WHR', 'Physique']
     
-    add_table_row('体脂率', body_fat_text)
-    add_table_row('基础代谢率 (BMR)', f'{get_attr(profile, "bmr")} kcal')
-    add_table_row('腰臀比 (WHR)', get_attr(profile, "whr"))
-    add_table_row('体型评价', get_attr(profile, "weight_category"))
+    add_table_row(labels_2[0], body_fat_text)
+    add_table_row(labels_2[1], f'{get_attr(profile, "bmr")} kcal')
+    add_table_row(labels_2[2], get_attr(profile, "whr"))
+    add_table_row(labels_2[3], get_attr(profile, "weight_category"))
     
     pdf.ln(5)
 
-    # 3. Recent Logs Section
+    # 3. Simulation Section (Optional)
+    if simulation_data:
+        if has_chinese:
+            pdf.set_font('Chinese', '', 14)
+            title_sim = '三、干预方案模拟'
+        else:
+            pdf.set_font('Helvetica', 'B', 13)
+            title_sim = 'III. Intervention Simulation'
+        pdf.cell(page_width, 10, title_sim, 0, 1, 'L')
+        pdf.ln(2)
+
+        diet = simulation_data.get('dietPlan', {})
+        exercise = simulation_data.get('exercisePlan', {})
+        result = simulation_data.get('simulationResult', {})
+
+        if has_chinese:
+            pdf.set_font('Chinese', '', 11)
+            pdf.cell(page_width, 8, '1. 干预方案参数', 0, 1, 'L')
+            pdf.set_font('Chinese', '', 10)
+        else:
+            pdf.set_font('Helvetica', 'B', 11)
+            pdf.cell(page_width, 8, '1. Parameters', 0, 1, 'L')
+            pdf.set_font('Helvetica', '', 10)
+
+        params_text = f"膳食: 碳水{diet.get('carb')}% / 蛋白{diet.get('protein')}% / 脂肪{diet.get('fat')}% | 总热量: {diet.get('calories')} kcal\n"
+        params_text += f"运动: 有氧 {exercise.get('aerobicFreq')}次/周 ({exercise.get('aerobicDuration')}min) | 日常步数: {exercise.get('steps')}步"
+        
+        if not has_chinese:
+            params_text = params_text.encode('ascii', 'replace').decode('ascii')
+        pdf.multi_cell(page_width, 6, params_text, 1, 'L')
+        pdf.ln(4)
+
+        if has_chinese:
+            pdf.set_font('Chinese', '', 11)
+            pdf.cell(page_width, 8, '2. AI 预测结果', 0, 1, 'L')
+            pdf.set_font('Chinese', '', 10)
+        else:
+            pdf.set_font('Helvetica', 'B', 11)
+            pdf.cell(page_width, 8, '2. AI Prediction', 0, 1, 'L')
+            pdf.set_font('Helvetica', '', 10)
+
+        res_text = f"预计体重变化: {result.get('weight', '0 kg')} | 预计体脂变化: {result.get('fat', '0%')}"
+        if not has_chinese:
+            res_text = res_text.encode('ascii', 'replace').decode('ascii')
+        pdf.cell(page_width, 8, res_text, 0, 1, 'L')
+        pdf.ln(2)
+
+        # 生成并插入曲线预览图表
+        linear_data = simulation_data.get('linearData', [])
+        ai_data = simulation_data.get('aiData', [])
+        weeks = simulation_data.get('weeks', 4)
+        current_weight = get_attr(profile, 'weight_kg', 60)
+        
+        if linear_data or ai_data:
+            chart_image = generate_chart_image(linear_data, ai_data, weeks, current_weight)
+            if chart_image:
+                try:
+                    # 保存图表到临时文件
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_chart:
+                        tmp_chart.write(chart_image)
+                        tmp_chart_path = tmp_chart.name
+                    
+                    # 插入图表到PDF（宽度占满页面，高度自适应）
+                    chart_width = page_width
+                    chart_height = chart_width * 0.6  # 保持比例
+                    
+                    # 检查是否需要新页面
+                    if pdf.get_y() + chart_height > pdf.h - 30:
+                        pdf.add_page()
+                    
+                    pdf.image(tmp_chart_path, x=pdf.l_margin, y=pdf.get_y(), w=chart_width, h=chart_height)
+                    pdf.ln(chart_height + 2)
+                    
+                    # 清理临时文件
+                    try:
+                        os.remove(tmp_chart_path)
+                    except:
+                        pass
+                except Exception as e:
+                    print(f"Failed to insert chart: {e}")
+                    pdf.ln(2)
+
+        if result.get('suggestions'):
+            if has_chinese:
+                pdf.set_font('Chinese', '', 11)
+                pdf.cell(page_width, 8, '3. AI 专家建议', 0, 1, 'L')
+                pdf.set_font('Chinese', '', 9)
+            else:
+                pdf.set_font('Helvetica', 'B', 11)
+                pdf.cell(page_width, 8, '3. AI Suggestions', 0, 1, 'L')
+                pdf.set_font('Helvetica', '', 9)
+            
+            for sugg in result.get('suggestions', []):
+                sugg_text = f"• {sugg}"
+                if not has_chinese:
+                    sugg_text = sugg_text.encode('ascii', 'replace').decode('ascii')
+                pdf.multi_cell(page_width, 5, sugg_text, 0, 'L')
+        
+        pdf.ln(5)
+
+    # 4. Recent Logs Section
+    section_num = '四' if simulation_data else '三'
+    section_title = '近期日志记录 (最近30天)'
+    no_records = '暂无近期记录'
+    if not has_chinese:
+        section_num = 'IV' if simulation_data else 'III'
+        section_title = 'Recent Logs (Last 30 Days)'
+        no_records = 'No recent records'
+        
     if has_chinese:
-        pdf.set_font('Chinese', '', 14)  # Larger size instead of bold
+        pdf.set_font('Chinese', '', 14)
     else:
         pdf.set_font('Helvetica', 'B', 13)
-    pdf.cell(page_width, 10, '三、近期日志记录 (最近30天)', 0, 1, 'L')
-    pdf.set_font('Chinese', '', 10) if has_chinese else pdf.set_font('Helvetica', '', 10)
+    pdf.cell(page_width, 10, f'{section_num}、{section_title}', 0, 1, 'L')
+    
+    if has_chinese:
+        pdf.set_font('Chinese', '', 10)
+    else:
+        pdf.set_font('Helvetica', '', 10)
     pdf.ln(2)
     
     if logs:
@@ -211,11 +437,17 @@ def generate_pdf_fpdf(user, profile, logs):
             # Date header with background
             pdf.set_fill_color(230, 230, 230)
             if has_chinese:
-                pdf.set_font('Chinese', '', 11)  # Larger size instead of bold
+                pdf.set_font('Chinese', '', 11)
+                date_label = f'日期: {log.log_date}'
             else:
                 pdf.set_font('Helvetica', 'B', 10)
-            pdf.cell(page_width, 8, f'日期: {log.log_date}', 1, 1, 'L', fill=True)
-            pdf.set_font('Chinese', '', 9) if has_chinese else pdf.set_font('Helvetica', '', 9)
+                date_label = f'Date: {log.log_date}'
+            pdf.cell(page_width, 8, date_label, 1, 1, 'L', fill=True)
+            
+            if has_chinese:
+                pdf.set_font('Chinese', '', 9)
+            else:
+                pdf.set_font('Helvetica', '', 9)
             
             # Log details in a compact format
             x_start = pdf.get_x()
@@ -226,17 +458,25 @@ def generate_pdf_fpdf(user, profile, logs):
             
             # Left column
             pdf.set_x(x_start)
-            intake_text = f'摄入: {log.calorie_intake} kcal'
+            if has_chinese:
+                intake_text = f'摄入: {log.calorie_intake} kcal'
+                expend_text = f'消耗: {log.calorie_expenditure} kcal'
+                weight_text = f'体重: {format_weight(log.daily_weight)}'
+                ai_label = 'AI建议:'
+            else:
+                intake_text = f'Intake: {log.calorie_intake} kcal'
+                expend_text = f'Expenditure: {log.calorie_expenditure} kcal'
+                weight_text = f'Weight: {format_weight(log.daily_weight)}'
+                ai_label = 'AI Suggestions:'
+
             pdf.cell(col_width, 6, intake_text, 0, 0, 'L')
             
             # Right column
             pdf.set_x(x_start + col_width + 5)
-            expend_text = f'消耗: {log.calorie_expenditure} kcal'
             pdf.cell(col_width, 6, expend_text, 0, 1, 'L')
             
             # Weight on next line
             pdf.set_x(x_start)
-            weight_text = f'体重: {format_weight(log.daily_weight)}'
             pdf.cell(page_width, 6, weight_text, 0, 1, 'L')
             
             # AI suggestions
@@ -245,53 +485,79 @@ def generate_pdf_fpdf(user, profile, logs):
                     suggestions = json.loads(log.ai_suggestions) if isinstance(log.ai_suggestions, str) else log.ai_suggestions
                     if isinstance(suggestions, list) and suggestions:
                         pdf.set_x(x_start + 5)
-                        pdf.set_font('Chinese', '', 8) if has_chinese else pdf.set_font('Helvetica', '', 8)
-                        pdf.cell(page_width - 10, 5, 'AI建议:', 0, 1, 'L')
+                        if has_chinese:
+                            pdf.set_font('Chinese', '', 8)
+                        else:
+                            pdf.set_font('Helvetica', '', 8)
+                        pdf.cell(page_width - 10, 5, ai_label, 0, 1, 'L')
                         for suggestion in suggestions:
                             suggestion_text = str(suggestion).strip() if suggestion else ''
                             if suggestion_text:
                                 pdf.set_x(x_start + 10)
-                                # Ensure text fits in page width
-                                text_width = pdf.get_string_width(f'• {suggestion_text}')
+                                bullet = '• ' if has_chinese else '- '
+                                full_text = f'{bullet}{suggestion_text}'
+                                if not has_chinese:
+                                    full_text = full_text.encode('ascii', 'replace').decode('ascii')
+                                    
+                                text_width = pdf.get_string_width(full_text)
                                 if text_width > page_width - 15:
-                                    pdf.multi_cell(page_width - 15, 5, f'• {suggestion_text}', 0, 'L')
+                                    pdf.multi_cell(page_width - 15, 5, full_text, 0, 'L')
                                 else:
-                                    pdf.cell(page_width - 15, 5, f'• {suggestion_text}', 0, 1, 'L')
+                                    pdf.cell(page_width - 15, 5, full_text, 0, 1, 'L')
                     elif suggestions:
                         suggestion_text = str(suggestions).strip()
                         if suggestion_text:
                             pdf.set_x(x_start + 5)
-                            pdf.set_font('Chinese', '', 8) if has_chinese else pdf.set_font('Helvetica', '', 8)
-                            text_width = pdf.get_string_width(f'AI建议: {suggestion_text}')
-                            if text_width > page_width - 10:
-                                pdf.multi_cell(page_width - 10, 5, f'AI建议: {suggestion_text}', 0, 'L')
+                            if has_chinese:
+                                pdf.set_font('Chinese', '', 8)
+                                full_text = f'AI建议: {suggestion_text}'
                             else:
-                                pdf.cell(page_width - 10, 5, f'AI建议: {suggestion_text}', 0, 1, 'L')
+                                pdf.set_font('Helvetica', '', 8)
+                                full_text = f'AI Suggestions: {suggestion_text}'
+                                full_text = full_text.encode('ascii', 'replace').decode('ascii')
+                                
+                            text_width = pdf.get_string_width(full_text)
+                            if text_width > page_width - 10:
+                                pdf.multi_cell(page_width - 10, 5, full_text, 0, 'L')
+                            else:
+                                pdf.cell(page_width - 10, 5, full_text, 0, 1, 'L')
                 except (json.JSONDecodeError, TypeError, AttributeError):
                     suggestion_text = str(log.ai_suggestions).strip()
                     if suggestion_text:
                         pdf.set_x(x_start + 5)
-                        pdf.set_font('Chinese', '', 8) if has_chinese else pdf.set_font('Helvetica', '', 8)
-                        text_width = pdf.get_string_width(f'AI建议: {suggestion_text}')
-                        if text_width > page_width - 10:
-                            pdf.multi_cell(page_width - 10, 5, f'AI建议: {suggestion_text}', 0, 'L')
+                        if has_chinese:
+                            pdf.set_font('Chinese', '', 8)
+                            full_text = f'AI建议: {suggestion_text}'
                         else:
-                            pdf.cell(page_width - 10, 5, f'AI建议: {suggestion_text}', 0, 1, 'L')
+                            pdf.set_font('Helvetica', '', 8)
+                            full_text = f'AI Suggestions: {suggestion_text}'
+                            full_text = full_text.encode('ascii', 'replace').decode('ascii')
+                            
+                        text_width = pdf.get_string_width(full_text)
+                        if text_width > page_width - 10:
+                            pdf.multi_cell(page_width - 10, 5, full_text, 0, 'L')
+                        else:
+                            pdf.cell(page_width - 10, 5, full_text, 0, 1, 'L')
             
-            pdf.set_font('Chinese', '', 9) if has_chinese else pdf.set_font('Helvetica', '', 9)
+            if has_chinese:
+                pdf.set_font('Chinese', '', 9)
+            else:
+                pdf.set_font('Helvetica', '', 9)
             pdf.ln(3)  # Spacing between log entries
     else:
-        pdf.cell(page_width, 8, '暂无近期记录', 0, 1, 'L')
+        pdf.cell(page_width, 8, no_records, 0, 1, 'L')
         
     # Footer with generation time
     pdf.ln(5)
-    pdf.set_font('Chinese', '', 9) if has_chinese else pdf.set_font('Helvetica', '', 9)
-    generated_text = f'生成时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}' if has_chinese else f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'
+    if has_chinese:
+        pdf.set_font('Chinese', '', 9)
+        generated_text = f'生成时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'
+    else:
+        pdf.set_font('Helvetica', '', 9)
+        generated_text = f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'
     pdf.cell(page_width, 8, generated_text, 0, 1, 'R')
     
     # Return PDF as bytes
-    # Use a temporary file approach to avoid encoding issues
-    # This ensures the PDF is written correctly regardless of character encoding
     import tempfile
     with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
         tmp_path = tmp_file.name
@@ -312,6 +578,60 @@ def generate_pdf_fpdf(user, profile, logs):
                 os.remove(tmp_path)
         except:
             pass
+
+@report_bp.route('/intervention/export', methods=['POST'])
+@jwt_required()
+def export_intervention_report():
+    try:
+        current_user_id = get_jwt_identity()
+        user = User.query.get(current_user_id)
+        
+        if not user:
+            return jsonify({'code': 404, 'message': '用户不存在'}), 404
+            
+        data = request.get_json()
+        if not data:
+            return jsonify({'code': 400, 'message': '缺少模拟数据'}), 400
+
+        # 1. 读取用户已提交的健康报告
+        report = Report.query.filter_by(user_id=user.id).first()
+        
+        if not report or not report.pdf_content:
+            # 如果没有报告，使用当前数据生成
+            profile = UserProfile.query.filter_by(user_id=user.id).first()
+            thirty_days_ago = datetime.now().date() - timedelta(days=30)
+            logs = DailyLog.query.filter(
+                DailyLog.user_id == user.id,
+                DailyLog.log_date >= thirty_days_ago
+            ).order_by(DailyLog.log_date.desc()).all()
+            
+            # 生成新的PDF，包含干预数据
+            pdf_bytes = generate_pdf_fpdf(user, profile, logs, simulation_data=data)
+        else:
+            # 如果有已提交的报告，基于报告数据生成新PDF
+            # 从报告中提取用户和档案信息（报告PDF中已包含这些信息）
+            profile = UserProfile.query.filter_by(user_id=user.id).first()
+            
+            # 获取日志数据（用于报告中的日志部分）
+            thirty_days_ago = datetime.now().date() - timedelta(days=30)
+            logs = DailyLog.query.filter(
+                DailyLog.user_id == user.id,
+                DailyLog.log_date >= thirty_days_ago
+            ).order_by(DailyLog.log_date.desc()).all()
+            
+            # 生成包含干预数据的PDF（这会复用报告中的基本信息）
+            pdf_bytes = generate_pdf_fpdf(user, profile, logs, simulation_data=data)
+        
+        # 3. Return PDF
+        response = make_response(pdf_bytes)
+        response.headers['Content-Type'] = 'application/pdf'
+        response.headers['Content-Disposition'] = 'inline; filename=intervention_report.pdf'
+        return response
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        current_app.logger.error(f"Intervention Export Error: {e}")
+        return jsonify({'code': 500, 'message': f'导出失败: {str(e)}'}), 500
 
 @report_bp.route('/preview', methods=['GET'])
 @jwt_required()

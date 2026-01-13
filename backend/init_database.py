@@ -11,25 +11,25 @@ def init_database():
         print("✅ 数据库表创建完成")
         
         # 创建角色
-        admin_role = Role.query.filter_by(code='admin').first()
-        if not admin_role:
-            admin_role = Role(
-                name='管理员',
-                code='admin',
-                description='系统管理员'
-            )
-            db.session.add(admin_role)
-            print("✅ 创建管理员角色")
+        roles_config = [
+            {'code': 'admin', 'name': '管理员', 'description': '系统管理员'},
+            {'code': 'teacher', 'name': '教师', 'description': '教师，管理课程和学生'},
+            {'code': 'student', 'name': '学生', 'description': '学生，查看课程和提交作业'},
+            {'code': 'user', 'name': '普通用户', 'description': '普通注册用户'}
+        ]
         
-        user_role = Role.query.filter_by(code='user').first()
-        if not user_role:
-            user_role = Role(
-                name='普通用户',
-                code='user',
-                description='普通用户'
-            )
-            db.session.add(user_role)
-            print("✅ 创建普通用户角色")
+        roles = {}
+        for r_cfg in roles_config:
+            role = Role.query.filter_by(code=r_cfg['code']).first()
+            if not role:
+                role = Role(
+                    name=r_cfg['name'],
+                    code=r_cfg['code'],
+                    description=r_cfg['description']
+                )
+                db.session.add(role)
+                print(f"✅ 创建{r_cfg['name']}角色")
+            roles[r_cfg['code']] = role
         
         db.session.commit()
         
@@ -42,7 +42,7 @@ def init_database():
                 real_name='系统管理员'
             )
             admin_user.set_password('admin123')
-            admin_user.role_id = admin_role.id
+            admin_user.role_id = roles['admin'].id
             db.session.add(admin_user)
             db.session.commit()
             print("✅ 创建管理员账户: admin / admin123")

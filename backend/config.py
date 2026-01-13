@@ -85,7 +85,6 @@ class ProductionConfig(Config):
         # 配置日志
         import logging
         from logging.handlers import RotatingFileHandler
-        import os
         
         if not app.debug:
             # 创建日志目录

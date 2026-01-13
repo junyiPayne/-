@@ -186,7 +186,11 @@ const exercisePlan = reactive({
 
 // 获取用户档案和今日日志状态
 onMounted(async () => {
-  initChart()
+  // 使用 nextTick 确保 DOM 完全渲染后再初始化图表
+  await nextTick()
+  setTimeout(() => {
+    initChart()
+  }, 100)
   window.addEventListener('resize', handleResize)
   
   try {
@@ -223,14 +227,45 @@ const handleResize = () => {
 }
 
 const initChart = () => {
-  if (chartRef.value) {
+  if (!chartRef.value) {
+    console.warn('⚠️ chartRef 未准备好，延迟初始化')
+    return
+  }
+  
+  // 检查DOM尺寸
+  const width = chartRef.value.clientWidth
+  const height = chartRef.value.clientHeight
+  
+  if (width === 0 || height === 0) {
+    console.warn(`⚠️ 图表容器尺寸为0: ${width}x${height}，延迟初始化`)
+    setTimeout(() => initChart(), 200)
+    return
+  }
+  
+  try {
+    if (chartInstance) {
+      chartInstance.dispose() // 清理旧实例
+    }
     chartInstance = echarts.init(chartRef.value)
     renderChart()
+    console.log('✅ 图表初始化成功')
+  } catch (error) {
+    console.error('❌ 图表初始化失败:', error)
   }
 }
 
 const renderChart = () => {
-  if (!chartInstance) return
+  if (!chartInstance) {
+    console.warn('⚠️ 图表实例不存在，尝试重新初始化')
+    initChart()
+    return
+  }
+  
+  // 确保有数据
+  if (!linearData.value || linearData.value.length === 0) {
+    console.warn('⚠️ 图表数据为空，跳过渲染')
+    return
+  }
   
   const weeks = predictionWeeks.value
   const xAxisData = Array.from({length: weeks + 1}, (_, i) => `第${i}周`)
@@ -354,43 +389,132 @@ const runSimulation = async () => {
     return
   }
 
+  console.log('🔵 开始AI预测，检查日志状态:', logsFilled.value)
   loading.value = true
   try {
     const expenditure = calculateDailyExpenditure()
-    
-    // Mock AI Response for now (since backend might not be ready for this specific prompt)
-    // In real scenario: await request.post('/ai/prediction', { ... })
-    
-    // Simulating API delay
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    
-    // Mock Logic: AI corrects linear prediction based on "Metabolic Adaptation"
-    // Usually linear overestimates weight loss. AI adds a "slow down" factor.
     const currentWeight = userProfile.value?.weight_kg || 60
-    const newAiData = [currentWeight]
-    const linearFinal = linearData.value[linearData.value.length - 1]
-    const linearChange = linearFinal - currentWeight
     
-    // AI Correction: Weight loss slows down by 10% every 4 weeks due to adaptation
-    let currentW = currentWeight
+    // 先计算线性预测数据（用于图表显示）
+    const newLinearData = [currentWeight]
+    const balance = dietPlan.calories - expenditure
+    
+    for (let i = 1; i <= predictionWeeks.value; i++) {
+      const totalDeficit = balance * 7 * i
+      const weightChange = totalDeficit / 7700
+      newLinearData.push(parseFloat((currentWeight + weightChange).toFixed(2)))
+    }
+    linearData.value = newLinearData
+    
+    // 调用后端AI服务获取专业预测和建议
+    try {
+      const aiRes = await request.post('/ai/prediction', {
+        calorie_intake: dietPlan.calories,
+        calorie_expenditure: expenditure,
+        carb_percent: dietPlan.carb,
+        protein_percent: dietPlan.protein,
+        fat_percent: dietPlan.fat,
+        fiber_grams: dietPlan.fiber,
+        alcohol_grams: dietPlan.alcohol,
+        exercise_duration: exercisePlan.aerobicDuration * exercisePlan.aerobicFreq / 7, // 日均运动时长
+        aerobic_freq: exercisePlan.aerobicFreq,
+        aerobic_intensity: exercisePlan.aerobicIntensity,
+        steps: exercisePlan.steps,
+        weeks: predictionWeeks.value
+      })
+      
+      if (aiRes.data && aiRes.data.code === 200 && aiRes.data.data) {
+        const assessment = aiRes.data.data.assessment || aiRes.data.data
+        
+        console.log('✅ AI API调用成功，返回数据:', {
+          weight: assessment.weight,
+          fat: assessment.fat,
+          risksCount: assessment.risks?.length || 0,
+          suggestionsCount: assessment.suggestions?.length || 0,
+          suggestions: assessment.suggestions
+        })
+        
+        // 检查建议数量和质量
+        const suggestionCount = assessment.suggestions?.length || 0
+        
+        // 日志输出
+        if (suggestionCount === 0) {
+          console.warn('⚠️ AI返回的建议为空，可能使用了模拟模式')
+        } else if (suggestionCount < 5) {
+          console.warn(`⚠️ AI返回的建议较少（${suggestionCount}条），期望至少5条`)
+          console.warn('⚠️ 建议内容:', assessment.suggestions)
+          console.warn('⚠️ 这可能是模拟模式的输出，请检查后端日志确认是否调用了真实API')
+        } else {
+          console.log(`✅ AI返回了 ${suggestionCount} 条建议，符合预期`)
+        }
+        
+        // 使用AI返回的预测结果
+        // 如果AI返回了体重变化，计算AI修正后的曲线
+        const weightChangeStr = assessment.weight || '0 kg'
+        const weightChangeNum = parseFloat(weightChangeStr.replace(/[^0-9.-]/g, '')) || 0
+        
+        const newAiData = [currentWeight]
+        // 将总变化量分配到每周（考虑代谢适应）
+        for (let i = 1; i <= predictionWeeks.value; i++) {
+          // 使用递减模型：前期变化快，后期变慢
+          const progress = i / predictionWeeks.value
+          const adaptationFactor = 1 - (progress * 0.3) // 后期减慢30%
+          const weeklyChange = (weightChangeNum / predictionWeeks.value) * adaptationFactor
+          newAiData.push(parseFloat((currentWeight + weeklyChange * i).toFixed(2)))
+        }
+        aiData.value = newAiData
+        
+        simulationResult.value = {
+          weight: assessment.weight || weightChangeStr,
+          fat: assessment.fat || '0%',
+          risks: assessment.risks || [],
+          suggestions: assessment.suggestions || []
+        }
+        
+        renderChart()
+        
+        // 显示成功消息（使用上面声明的 suggestionCount）
+        if (suggestionCount >= 5) {
+          ElMessage.success(`AI 专业预测完成，提供 ${suggestionCount} 条详细建议`)
+        } else {
+          ElMessage.success('AI 预测完成')
+        }
+        return
+      } else {
+        console.warn('⚠️ AI API返回格式异常:', aiRes.data)
+      }
+    } catch (aiError) {
+      console.error('❌ AI服务调用失败:', aiError)
+      console.error('错误详情:', {
+        message: aiError.message,
+        response: aiError.response?.data,
+        status: aiError.response?.status,
+        statusText: aiError.response?.statusText,
+        url: aiError.config?.url,
+        method: aiError.config?.method
+      })
+      // 不显示错误提示，直接降级到本地模拟（避免干扰用户体验）
+      console.warn('⚠️ 降级到本地模拟模式')
+      // 如果AI调用失败，降级到本地模拟
+    }
+    
+    // 降级方案：本地模拟逻辑（与之前相同，但保留作为后备）
+    const newAiData = [currentWeight]
     const weeklyDeficit = (dietPlan.calories - expenditure) * 7
     
     for (let i = 1; i <= predictionWeeks.value; i++) {
-      // Adaptation factor: metabolism drops as weight drops
-      const adaptationFactor = Math.max(0.5, 1 - (i * 0.02)) 
+      const adaptationFactor = Math.max(0.5, 1 - (i * 0.02))
       const realDeficit = weeklyDeficit * adaptationFactor
       const change = realDeficit / 7700
-      currentW += change
-      newAiData.push(parseFloat(currentW.toFixed(2)))
+      newAiData.push(parseFloat((currentWeight + change * i).toFixed(2)))
     }
     
     aiData.value = newAiData
     
-    // 动态生成 AI 建议和风险提示
+    // 本地模拟建议（作为后备）
     const risks = []
     const suggestions = []
 
-    // 1. 热量分析
     if (dietPlan.calories < 1200) {
       risks.push('热量摄入过低，可能导致基础代谢损伤')
       risks.push('微量元素缺乏风险')
@@ -400,7 +524,6 @@ const runSimulation = async () => {
       suggestions.push('建议适当减少总热量摄入')
     }
 
-    // 2. 营养素分析
     if (dietPlan.protein < 15) {
       risks.push('蛋白质摄入不足，肌肉流失风险')
       suggestions.push('增加瘦肉、蛋奶或豆制品的摄入')
@@ -423,7 +546,6 @@ const runSimulation = async () => {
       suggestions.push('建议减少或避免酒精摄入')
     }
 
-    // 3. 运动分析
     if (exercisePlan.aerobicFreq > 5 && exercisePlan.aerobicIntensity > 8) {
       risks.push('高频高强度有氧可能导致过度训练')
       suggestions.push('建议安排1-2天完全休息日')
@@ -438,20 +560,19 @@ const runSimulation = async () => {
       suggestions.push('建议增加日常步行，减少久坐')
     }
 
-    // 兜底建议
     if (suggestions.length === 0) {
       suggestions.push('当前的饮食和运动计划非常均衡，请继续保持！')
     }
 
     simulationResult.value = {
       weight: (newAiData[newAiData.length-1] - currentWeight).toFixed(1) + ' kg',
-      fat: ((newAiData[newAiData.length-1] - currentWeight) * 0.8 / currentWeight * 100).toFixed(1) + '%', // 粗略估算体脂变化
+      fat: ((newAiData[newAiData.length-1] - currentWeight) * 0.8 / currentWeight * 100).toFixed(1) + '%',
       risks: risks,
       suggestions: suggestions
     }
     
     renderChart()
-    ElMessage.success('AI 修正预测完成')
+    ElMessage.success('AI 修正预测完成（使用本地模拟）')
     
   } catch (error) {
     console.error(error)
@@ -461,10 +582,58 @@ const runSimulation = async () => {
   }
 }
 
-const exportReport = () => {
-  ElMessage.success('正在生成 PDF 报告...')
-  // 使用浏览器原生打印功能，用户可以选择"另存为PDF"
-  window.print()
+const exportReport = async () => {
+  if (!simulationResult.value) {
+    ElMessage.warning('请先点击按钮获取 AI 预测结果')
+    return
+  }
+
+  if (!linearData.value || linearData.value.length === 0) {
+    ElMessage.warning('请先点击"几周后我会怎样"按钮生成预测数据')
+    return
+  }
+
+  loading.value = true
+  ElMessage.success('正在生成标准 PDF 报告...')
+  
+  try {
+    console.log('发送数据:', {
+      dietPlan,
+      exercisePlan,
+      simulationResult: simulationResult.value,
+      linearData: linearData.value,
+      aiData: aiData.value,
+      weeks: predictionWeeks.value
+    })
+    
+    const res = await request.post('/reports/intervention/export', {
+      dietPlan: dietPlan,
+      exercisePlan: exercisePlan,
+      simulationResult: simulationResult.value,
+      linearData: linearData.value,
+      aiData: aiData.value,
+      weeks: predictionWeeks.value
+    }, { responseType: 'blob' })
+    
+    if (!res.data || res.data.size === 0) {
+      ElMessage.error('生成的PDF为空，请检查后端日志')
+      return
+    }
+    
+    const blob = new Blob([res.data], { type: 'application/pdf' })
+    const url = window.URL.createObjectURL(blob)
+    window.open(url, '_blank')
+    ElMessage.success('PDF报告生成成功！')
+  } catch (error) {
+    console.error('PDF生成错误:', error)
+    if (error.response) {
+      ElMessage.error(`报告生成失败: ${error.response.data?.message || error.message}`)
+    } else {
+      ElMessage.error('报告生成失败，请检查网络连接或后端服务')
+    }
+  } finally {
+    loading.value = false
+  }
 }
 </script>
 
@@ -525,5 +694,35 @@ const exportReport = () => {
 }
 .text-danger {
   color: #F56C6C;
+}
+
+/* 干预工坊专属打印优化 */
+@media print {
+  .intervention-container {
+    padding: 0;
+  }
+  
+  /* 让左右两栏在打印时垂直排列，并各占 100% 宽度 */
+  .el-row {
+    display: block !important;
+  }
+  
+  .el-col-9, .el-col-15 {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: none !important;
+    margin-bottom: 20px;
+  }
+
+  /* 打印时展开所有 Tab 内容（可选，但目前 el-tabs 只能打印激活态） */
+  
+  /* 确保图表可见 */
+  .chart-wrapper {
+    page-break-inside: avoid;
+  }
+  
+  .export-section {
+    border-top: none !important;
+  }
 }
 </style>

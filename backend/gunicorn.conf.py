@@ -16,8 +16,9 @@ keepalive = 5
 log_dir = 'logs'
 if not os.path.exists(log_dir):
     os.makedirs(log_dir, exist_ok=True)
-accesslog = os.environ.get('ACCESS_LOG', os.path.join(log_dir, 'access.log'))
-errorlog = os.environ.get('ERROR_LOG', os.path.join(log_dir, 'error.log'))
+# 同时输出到文件和控制台（方便Docker查看）
+accesslog = '-'  # '-' 表示输出到stdout，方便docker-compose logs查看
+errorlog = '-'   # '-' 表示输出到stderr，方便docker-compose logs查看
 loglevel = os.environ.get('LOG_LEVEL', 'info')
 access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
 
