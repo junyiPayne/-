@@ -23,6 +23,7 @@ BS系统是一个基于Browser/Server架构的运动生理健康管理系统，�
 - **SQLAlchemy** - ORM数据库操作
 - **Flask-JWT-Extended** - JWT身份认证
 - **Flask-CORS** - 跨域支持
+- **Gunicorn** - 生产环境WSGI服务器
 - **fpdf2** 2.7.6 - PDF生成
 - **requests** - HTTP请求（AI API调用）
 - **bcrypt** - 密码加密
@@ -42,6 +43,11 @@ BS系统是一个基于Browser/Server架构的运动生理健康管理系统，�
 ### AI服务
 - **DeepSeek API** - AI健康评估
 - **通义千问 API** - AI预测分析
+
+### 部署
+- **Nginx** - 反向代理和静态文件服务
+- **Docker** - 容器化部署（可选）
+- **Gunicorn** - 生产环境WSGI服务器
 
 ## 项目结构
 
@@ -63,31 +69,37 @@ BS系统/
 │   │   │   ├── daily_log.py   # 日志管理路由
 │   │   │   ├── report.py      # 报告管理路由
 │   │   │   ├── ai.py          # AI服务路由
+│   │   │   ├── health.py      # 健康检查路由
 │   │   │   └── roles.py       # 角色管理路由
 │   │   ├── services/          # 业务服务层
 │   │   │   └── ai_service.py  # AI服务封装
 │   │   ├── utils/             # 工具函数
 │   │   │   ├── calculations.py # 计算公式模块
 │   │   │   ├── decorators.py  # 装饰器
-│   │   │   ├── errors.py      # 异常处理
+│   │   │   ├── errors.py       # 异常处理
 │   │   │   └── response.py    # 响应格式化
 │   │   └── static/            # 静态文件
 │   │       ├── avatars/       # 头像文件
 │   │       ├── uploads/       # 上传文件
 │   │       └── reports/       # 报告文件
 │   ├── config.py              # 配置文件
-│   ├── run.py                 # 运行入口
+│   ├── run.py                 # 开发环境运行入口
+│   ├── run_production.py      # 生产环境运行入口（测试用）
+│   ├── start.sh               # 生产环境启动脚本
+│   ├── stop.sh                # 生产环境停止脚本
+│   ├── gunicorn.conf.py       # Gunicorn配置文件
+│   ├── logging.conf           # 日志配置文件
 │   ├── init_database.py       # 数据库初始化
-│   └── requirements.txt       # Python依赖
+│   └── requirements.txt      # Python依赖
 ├── frontend/                   # 前端代码
 │   ├── src/
 │   │   ├── views/             # 页面组件
 │   │   │   ├── auth/          # 认证页面
 │   │   │   ├── users/         # 用户管理
 │   │   │   ├── profile/       # 用户档案
-│   │   │   ├── daily-log/     # 每日日志
-│   │   │   ├── statistics/    # 统计分析
-│   │   │   └── business/      # 业务数据
+│   │   │   ├── daily-log/      # 每日日志
+│   │   │   ├── statistics/     # 统计分析
+│   │   │   └── business/       # 业务数据
 │   │   ├── api/               # API调用
 │   │   ├── router/            # 路由配置
 │   │   ├── stores/            # 状态管理
@@ -102,10 +114,12 @@ BS系统/
 │   └── 06-后期展望.md
 ├── database/                  # 数据库脚本
 │   └── init.sql
-├── backups/                   # 数据库备份
-├── README.md                  # 项目说明
-├── 快速启动.md                # 快速启动指南
-└── 项目完成度检查.md          # 项目完成度检查
+├── nginx.conf                  # Nginx配置文件
+├── Dockerfile                  # Docker镜像配置
+├── docker-compose.yml         # Docker Compose配置
+├── deploy.md                   # 部署文档
+├── 快速启动.md                 # 快速启动指南
+└── README.md                   # 项目说明
 ```
 
 ## 核心功能模块
@@ -147,9 +161,14 @@ BS系统/
 - 时间范围筛选（4周/8周/12周）
 - 报告预览和提交（集成在统计页面）
 
+### 7. 健康检查
+- `/api/health` - 健康检查接口
+- `/api/ready` - 就绪检查接口（Kubernetes）
+- `/api/live` - 存活检查接口（Kubernetes）
+
 ## 快速开始
 
-### 方式一：快速启动（推荐）
+### 方式一：快速启动（开发环境）
 
 详细步骤请参考 [`快速启动.md`](./快速启动.md)
 
@@ -158,9 +177,25 @@ BS系统/
 2. 启动后端：`python run.py`
 3. 启动前端：`cd frontend && npm install && npm run serve`
 
-### 方式二：详细安装
+### 方式二：生产环境部署
 
-详细说明请参考 [`docs/05-使用安装开发说明.md`](./docs/05-使用安装开发说明.md)
+详细步骤请参考 [`deploy.md`](./deploy.md)
+
+**快速部署：**
+1. 配置环境变量：`cp backend/.env.example backend/.env` 并修改配置
+2. 初始化数据库：`cd backend && python init_database.py`
+3. 启动后端：`cd backend && ./start.sh`
+4. 构建前端：`cd frontend && npm install && npm run build`
+5. 配置Nginx：参考 `nginx.conf` 和 `deploy.md`
+
+### 方式三：Docker部署（推荐）
+
+```bash
+# 使用 Docker Compose 一键部署
+docker-compose up -d
+```
+
+详细说明请参考 [`deploy.md`](./deploy.md)
 
 ## 默认账户
 
@@ -168,20 +203,113 @@ BS系统/
 - **密码**：`admin123`
 - **角色**：管理员
 
+⚠️ **生产环境部署后请立即修改默认密码！**
+
 ## 系统要求
 
+### 开发环境
 - Python 3.9+
 - Node.js 18+
 - SQLite（默认，无需额外安装）
 
+### 生产环境
+- Python 3.9+
+- Node.js 18+
+- Nginx 1.18+（用于反向代理）
+- SQLite（默认）或 MySQL 8.0+ / PostgreSQL 13+（推荐）
+- Gunicorn（已包含在 requirements.txt）
+
+## 环境变量配置
+
+### 后端环境变量（backend/.env）
+
+生产环境必须配置以下变量：
+
+```env
+# 安全密钥（必须修改！）
+SECRET_KEY=your-generated-secret-key
+JWT_SECRET_KEY=your-generated-jwt-secret-key
+
+# 运行环境
+FLASK_ENV=production
+FLASK_DEBUG=False
+
+# CORS配置（修改为你的前端域名）
+CORS_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
+
+# 数据库配置（如果使用MySQL）
+DB_TYPE=mysql
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=bs_user
+DB_PASSWORD=your_password
+DB_NAME=bs_system
+
+# AI服务配置（可选）
+DEEPSEEK_API_KEY=your-deepseek-api-key
+QWEN_API_KEY=your-qwen-api-key
+AI_PROVIDER=deepseek
+```
+
+生成安全密钥：
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+### 前端环境变量（frontend/.env.production）
+
+```env
+VUE_APP_API_BASE_URL=/api
+VUE_APP_TITLE=BS系统 - 学生健康管理系统
+VUE_APP_DEBUG=false
+```
+
 ## 文档说明
 
-- **快速启动指南**：`快速启动.md` - 最简单的启动方式
+- **快速启动指南**：`快速启动.md` - 开发环境快速启动
+- **部署文档**：`deploy.md` - 生产环境部署详细指南
 - **安装开发说明**：`docs/05-使用安装开发说明.md` - 详细的安装和开发指南
 - **概要设计文档**：`docs/02-概要设计文档.md` - 系统架构和设计概览
 - **详细设计文档**：`docs/03-详细设计文档.md` - 详细的实现设计
 - **用例测试文档**：`docs/04-用例测试文档.md` - 测试用例和测试说明
-- **项目完成度**：`项目完成度检查.md` - 功能完成度检查清单
+- **后期展望**：`docs/06-后期展望.md` - 系统未来发展规划
+
+## API接口
+
+### 认证相关
+- `POST /api/auth/register` - 用户注册
+- `POST /api/auth/login` - 用户登录
+- `POST /api/auth/logout` - 用户登出
+- `POST /api/auth/refresh` - 刷新Token
+
+### 健康检查
+- `GET /api/health` - 健康检查
+- `GET /api/ready` - 就绪检查
+- `GET /api/live` - 存活检查
+
+### 用户管理
+- `GET /api/users` - 获取用户列表
+- `GET /api/users/:id` - 获取用户详情
+- `PUT /api/users/:id` - 更新用户信息
+
+### 用户档案
+- `GET /api/profile` - 获取用户档案
+- `POST /api/profile` - 创建用户档案
+- `PUT /api/profile` - 更新用户档案
+
+### 每日日志
+- `GET /api/daily-log` - 获取日志列表
+- `POST /api/daily-log` - 创建/更新日志
+- `GET /api/daily-log/statistics` - 获取统计数据
+
+### AI服务
+- `POST /api/ai/health-assessment` - 获取AI健康评估
+- `POST /api/ai/prediction` - 获取AI预测
+
+### 报告管理
+- `GET /api/reports/preview` - 预览报告
+- `POST /api/reports/submit` - 提交报告
+- `GET /api/reports/list` - 获取报告列表
 
 ## 开发规范
 
@@ -189,6 +317,16 @@ BS系统/
 - **前端**：使用ESLint和Prettier
 - **API**：RESTful风格
 - **响应格式**：统一的JSON格式
+
+## 安全特性
+
+- ✅ JWT Token认证
+- ✅ 密码bcrypt加密
+- ✅ 生产环境错误信息保护
+- ✅ CORS跨域安全配置
+- ✅ 文件上传大小限制（16MB）
+- ✅ SQL注入防护（SQLAlchemy ORM）
+- ✅ XSS防护（前端自动转义）
 
 ## 许可证
 
@@ -198,3 +336,6 @@ BS系统/
 
 如有问题或建议，请查看文档或提交Issue。
 
+---
+
+**项目状态**: ✅ 已完成，支持生产环境部署
