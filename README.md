@@ -251,6 +251,12 @@ QWEN_API_KEY=your-qwen-api-key
 AI_PROVIDER=deepseek
 ```
 
+> 提示：如果 DeepSeek 返回 “Insufficient Balance” 会自动降级为本地模拟。请在 DeepSeek 控制台充值，或改用 Qwen：  
+> ```
+> QWEN_API_KEY=your-qwen-api-key
+> AI_PROVIDER=qwen
+> ```
+
 生成安全密钥：
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(32))"
