@@ -180,7 +180,8 @@ def generate_pdf_fpdf(user, profile, logs, simulation_data=None):
             has_chinese = True
         else:
             raise Exception("No Chinese font found")
-    except:
+    except Exception as e:
+        print(f"Font setup error: {e}")
         pdf.set_font('Helvetica', '', 11)
         has_chinese = False
         
@@ -318,9 +319,15 @@ def generate_pdf_fpdf(user, profile, logs, simulation_data=None):
         pdf.cell(page_width, 10, title_sim, 0, 1, 'L')
         pdf.ln(2)
 
-        diet = simulation_data.get('dietPlan', {})
-        exercise = simulation_data.get('exercisePlan', {})
-        result = simulation_data.get('simulationResult', {})
+        diet = simulation_data.get('dietPlan', {}) or simulation_data.get('diet_plan', {})
+        exercise = simulation_data.get('exercisePlan', {}) or simulation_data.get('exercise_plan', {})
+        result = simulation_data.get('simulationResult', {}) or simulation_data.get('simulation_result', {})
+        
+        # 调试输出
+        print(f"[PDF Debug] diet: {diet}")
+        print(f"[PDF Debug] exercise: {exercise}")
+        print(f"[PDF Debug] result: {result}")
+        print(f"[PDF Debug] suggestions: {result.get('suggestions', [])}")
 
         if has_chinese:
             pdf.set_font('Chinese', '', 11)
@@ -331,8 +338,17 @@ def generate_pdf_fpdf(user, profile, logs, simulation_data=None):
             pdf.cell(page_width, 8, '1. Parameters', 0, 1, 'L')
             pdf.set_font('Helvetica', '', 10)
 
-        params_text = f"膳食: 碳水{diet.get('carb')}% / 蛋白{diet.get('protein')}% / 脂肪{diet.get('fat')}% | 总热量: {diet.get('calories')} kcal\n"
-        params_text += f"运动: 有氧 {exercise.get('aerobicFreq')}次/周 ({exercise.get('aerobicDuration')}min) | 日常步数: {exercise.get('steps')}步"
+        # 兼容不同的字段名格式
+        carb = diet.get('carb') or diet.get('carbohydrate', 50)
+        protein = diet.get('protein', 20)
+        fat = diet.get('fat', 30)
+        calories = diet.get('calories') or diet.get('calorie', 2000)
+        aerobic_freq = exercise.get('aerobicFreq') or exercise.get('aerobic_freq') or exercise.get('aerobicFreq', 3)
+        aerobic_duration = exercise.get('aerobicDuration') or exercise.get('aerobic_duration') or exercise.get('aerobicDuration', 30)
+        steps = exercise.get('steps') or exercise.get('daily_steps', 6000)
+        
+        params_text = f"膳食: 碳水{carb}% / 蛋白{protein}% / 脂肪{fat}% | 总热量: {calories} kcal\n"
+        params_text += f"运动: 有氧 {aerobic_freq}次/周 ({aerobic_duration}min) | 日常步数: {steps}步"
         
         if not has_chinese:
             params_text = params_text.encode('ascii', 'replace').decode('ascii')
@@ -348,17 +364,25 @@ def generate_pdf_fpdf(user, profile, logs, simulation_data=None):
             pdf.cell(page_width, 8, '2. AI Prediction', 0, 1, 'L')
             pdf.set_font('Helvetica', '', 10)
 
-        res_text = f"预计体重变化: {result.get('weight', '0 kg')} | 预计体脂变化: {result.get('fat', '0%')}"
+        # 兼容不同的字段名格式
+        weight_change = result.get('weight') or result.get('weight_change', '0 kg')
+        fat_change = result.get('fat') or result.get('fat_change', '0%')
+        res_text = f"预计体重变化: {weight_change} | 预计体脂变化: {fat_change}"
         if not has_chinese:
             res_text = res_text.encode('ascii', 'replace').decode('ascii')
         pdf.cell(page_width, 8, res_text, 0, 1, 'L')
         pdf.ln(2)
 
         # 生成并插入曲线预览图表
-        linear_data = simulation_data.get('linearData', [])
-        ai_data = simulation_data.get('aiData', [])
+        linear_data = simulation_data.get('linearData', []) or simulation_data.get('linear_data', [])
+        ai_data = simulation_data.get('aiData', []) or simulation_data.get('ai_data', [])
         weeks = simulation_data.get('weeks', 4)
         current_weight = get_attr(profile, 'weight_kg', 60)
+        
+        # 调试输出
+        print(f"[PDF Debug] linear_data: {linear_data[:3] if linear_data else None}... (length: {len(linear_data) if linear_data else 0})")
+        print(f"[PDF Debug] ai_data: {ai_data[:3] if ai_data else None}... (length: {len(ai_data) if ai_data else 0})")
+        print(f"[PDF Debug] weeks: {weeks}")
         
         if linear_data or ai_data:
             chart_image = generate_chart_image(linear_data, ai_data, weeks, current_weight)
@@ -377,21 +401,45 @@ def generate_pdf_fpdf(user, profile, logs, simulation_data=None):
                     if pdf.get_y() + chart_height > pdf.h - 30:
                         pdf.add_page()
                     
+                    # 添加图表标题
+                    pdf.ln(2)
+                    if has_chinese:
+                        pdf.set_font('Chinese', '', 10)
+                        pdf.cell(page_width, 6, '体重变化预测曲线', 0, 1, 'L')
+                    else:
+                        pdf.set_font('Helvetica', 'B', 10)
+                        pdf.cell(page_width, 6, 'Weight Prediction Chart', 0, 1, 'L')
+                    pdf.ln(2)
+                    
                     pdf.image(tmp_chart_path, x=pdf.l_margin, y=pdf.get_y(), w=chart_width, h=chart_height)
-                    pdf.ln(chart_height + 2)
+                    pdf.ln(chart_height + 3)
                     
                     # 清理临时文件
                     try:
                         os.remove(tmp_chart_path)
                     except:
                         pass
+                    print("[PDF Debug] Chart inserted successfully")
                 except Exception as e:
                     print(f"Failed to insert chart: {e}")
+                    import traceback
+                    traceback.print_exc()
                     pdf.ln(2)
+            else:
+                print("[PDF Debug] Chart image generation returned None")
+        else:
+            print(f"[PDF Debug] No chart data: linear_data={bool(linear_data)}, ai_data={bool(ai_data)}")
 
         if result.get('suggestions'):
+            # 添加标题
+            pdf.ln(3)
             if has_chinese:
-                pdf.set_font('Chinese', '', 11)
+                # 尝试使用加粗，如果失败则使用普通字体但增大字号
+                try:
+                    pdf.set_font('Chinese', 'B', 11)
+                except:
+                    # 如果加粗字体不存在，使用普通字体但稍微增大字号
+                    pdf.set_font('Chinese', '', 12)
                 pdf.cell(page_width, 8, '3. AI 专家建议', 0, 1, 'L')
                 pdf.set_font('Chinese', '', 9)
             else:
@@ -399,11 +447,44 @@ def generate_pdf_fpdf(user, profile, logs, simulation_data=None):
                 pdf.cell(page_width, 8, '3. AI Suggestions', 0, 1, 'L')
                 pdf.set_font('Helvetica', '', 9)
             
-            for sugg in result.get('suggestions', []):
-                sugg_text = f"• {sugg}"
-                if not has_chinese:
-                    sugg_text = sugg_text.encode('ascii', 'replace').decode('ascii')
-                pdf.multi_cell(page_width, 5, sugg_text, 0, 'L')
+            pdf.ln(2)
+            
+            # 添加建议列表，确保文本正确换行
+            suggestions = result.get('suggestions', [])
+            for idx, sugg in enumerate(suggestions):
+                if not sugg or not str(sugg).strip():
+                    continue
+                    
+                # 处理建议文本
+                sugg_text = str(sugg).strip()
+                
+                # 如果文本太长，需要分段处理
+                # 计算文本宽度（考虑中文字符）
+                if has_chinese:
+                    # 中文字符宽度大约是英文字符的2倍
+                    max_chars_per_line = int(page_width / 3)  # 估算每行字符数
+                else:
+                    max_chars_per_line = int(page_width / 2)
+                
+                # 如果文本超过一行，使用multi_cell
+                if len(sugg_text) > max_chars_per_line:
+                    # 添加项目符号
+                    bullet = "• " if has_chinese else "- "
+                    full_text = bullet + sugg_text
+                    if not has_chinese:
+                        full_text = full_text.encode('ascii', 'replace').decode('ascii')
+                    
+                    # 使用multi_cell自动换行，行高6mm，左对齐
+                    pdf.multi_cell(page_width, 6, full_text, 0, 'L')
+                    pdf.ln(1)  # 建议之间的间距
+                else:
+                    # 文本较短，使用单行
+                    bullet = "• " if has_chinese else "- "
+                    full_text = bullet + sugg_text
+                    if not has_chinese:
+                        full_text = full_text.encode('ascii', 'replace').decode('ascii')
+                    
+                    pdf.cell(page_width, 6, full_text, 0, 1, 'L')
         
         pdf.ln(5)
 

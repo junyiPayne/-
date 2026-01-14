@@ -35,8 +35,16 @@ if [ ! -f "venv/bin/gunicorn" ]; then
     pip install -r requirements.txt
 fi
 
-# 检查环境变量
-if [ ! -f ".env" ]; then
+# 检查环境变量（优先查找项目根目录的 .env）
+PARENT_DIR="$(dirname "$(pwd)")"
+ENV_FILE=""
+if [ -f "../.env" ]; then
+    ENV_FILE="../.env"
+    echo -e "${GREEN}找到项目根目录的 .env 文件${NC}"
+elif [ -f ".env" ]; then
+    ENV_FILE=".env"
+    echo -e "${GREEN}找到 backend 目录的 .env 文件${NC}"
+else
     echo -e "${YELLOW}警告: 未找到 .env 文件${NC}"
     echo -e "${YELLOW}请从 .env.example 复制并配置 .env 文件${NC}"
     if [ -f ".env.example" ]; then

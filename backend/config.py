@@ -2,7 +2,25 @@ import os
 from datetime import timedelta
 from dotenv import load_dotenv
 
-load_dotenv()
+# 查找项目根目录的 .env 文件
+# 如果当前目录是 backend，向上查找一级；否则在当前目录查找
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+env_paths = [
+    os.path.join(current_dir, '.env'),  # backend/.env
+    os.path.join(parent_dir, '.env'),    # 项目根目录/.env
+]
+
+# 按优先级加载 .env 文件
+for env_path in env_paths:
+    if os.path.exists(env_path):
+        load_dotenv(env_path)
+        if os.environ.get('FLASK_ENV') != 'production':
+            print(f"[DEBUG] 加载环境变量文件: {env_path}")
+        break
+else:
+    # 如果都没找到，使用默认行为（当前目录）
+    load_dotenv()
 
 class Config:
     """基础配置"""
@@ -26,7 +44,15 @@ class Config:
         )
     else:
         # 使用SQLite（不需要MySQL服务）
-        SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'sqlite:///bs_system.db'
+        # Flask默认使用instance文件夹存储数据库文件
+        # 如果设置了DATABASE_URL环境变量，使用它；否则使用instance目录下的数据库
+        if os.environ.get('DATABASE_URL'):
+            SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
+        else:
+            # 使用instance目录下的数据库文件
+            # 注意：这里使用相对路径，Flask会在create_app中转换为绝对路径
+            # 这样可以避免路径中包含中文字符时的问题
+            SQLALCHEMY_DATABASE_URI = 'sqlite:///bs_system.db'
     
     # SQLAlchemy 配置
     SQLALCHEMY_TRACK_MODIFICATIONS = False

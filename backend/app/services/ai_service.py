@@ -292,20 +292,52 @@ class AIService:
         }
         
         print(f"📤 正在调用 DeepSeek API，提示词长度: {len(prompt)} 字符")
-        response = requests.post(url, headers=headers, json=data, timeout=30)
+        try:
+            response = requests.post(url, headers=headers, json=data, timeout=30)
+        except requests.exceptions.Timeout:
+            raise ValueError("DeepSeek API调用超时（30秒）")
+        except requests.exceptions.ConnectionError:
+            raise ValueError("无法连接到DeepSeek API，请检查网络连接")
+        except requests.exceptions.RequestException as e:
+            raise ValueError(f"DeepSeek API请求失败: {str(e)}")
         
         # 检查HTTP状态码
         if response.status_code != 200:
-            error_msg = f"HTTP {response.status_code}: {response.text[:200]}"
+            error_text = response.text[:500] if response.text else "无响应内容"
+            error_msg = f"HTTP {response.status_code}: {error_text}"
             print(f"❌ API调用失败: {error_msg}")
+            
+            # 尝试解析错误信息
+            try:
+                error_json = response.json()
+                if 'error' in error_json:
+                    api_error = error_json['error']
+                    error_detail = api_error.get('message', '未知错误')
+                    error_type = api_error.get('type', '')
+                    print(f"   API错误类型: {error_type}")
+                    print(f"   API错误信息: {error_detail}")
+                    raise ValueError(f"DeepSeek API错误 ({error_type}): {error_detail}")
+            except (ValueError, KeyError, json.JSONDecodeError):
+                pass
+            
             response.raise_for_status()
         
         result = response.json()
         
         # 检查API返回的错误
         if 'error' in result:
-            error_msg = result['error'].get('message', '未知错误')
-            raise ValueError(f"DeepSeek API错误: {error_msg}")
+            error_info = result['error']
+            error_msg = error_info.get('message', '未知错误')
+            error_type = error_info.get('type', 'unknown')
+            error_code = error_info.get('code', '')
+            
+            # 常见错误提示
+            if 'insufficient_quota' in error_msg.lower() or 'quota' in error_msg.lower() or error_code == 'insufficient_quota':
+                raise ValueError("API余额不足，请充值后使用。系统将自动切换到模拟模式。")
+            elif 'invalid_api_key' in error_msg.lower() or error_code == 'invalid_api_key':
+                raise ValueError("API Key无效，请检查配置。系统将自动切换到模拟模式。")
+            else:
+                raise ValueError(f"DeepSeek API错误 ({error_type}): {error_msg}")
         
         content = result['choices'][0]['message']['content']
         print(f"✅ DeepSeek API调用成功，返回内容长度: {len(content)} 字符")
@@ -414,6 +446,359 @@ class AIService:
                 "保持均衡饮食，控制热量摄入",
                 "适量运动，提高基础代谢率",
                 "定期监测体重和身体指标变化"
+            ]
+        }
+
+    def generate_daily_plan(self, profile_data, target_weight_gain_kg, weeks=4, log_data=None):
+        """
+        根据目标增重生成每日饮食和运动建议
+        
+        Args:
+            profile_data: 用户档案数据
+            target_weight_gain_kg: 目标增重（公斤）
+            weeks: 计划周期（周）
+            log_data: 用户近30天的饮食记录统计（可选）
+        
+        Returns:
+            dict: 包含每日饮食建议和运动建议，以及is_ai_generated标识
+        """
+        # 检查API Key配置，如果没有配置则使用模拟模式
+        if not self.deepseek_api_key and not self.qianwen_api_key:
+            print("=" * 60)
+            print("⚠️ 【模拟模式】未检测到API Key，使用本地模拟模式生成每日计划")
+            print("=" * 60)
+            result = self._generate_simulation_daily_plan(profile_data, target_weight_gain_kg, weeks, log_data)
+            result['_is_ai_generated'] = False
+            result['_mode'] = 'simulation'
+            result['_reason'] = 'no_api_key'
+            return result
+
+        prompt = self._build_daily_plan_prompt(profile_data, target_weight_gain_kg, weeks, log_data)
+        
+        try:
+            print("=" * 60)
+            print(f"🤖 【真实AI模式】正在调用AI API生成每日计划")
+            print(f"   目标增重: {target_weight_gain_kg}kg")
+            print(f"   计划周期: {weeks}周")
+            print(f"   使用服务: {self.provider.upper()}")
+            print(f"   提示词长度: {len(prompt)} 字符")
+            print("=" * 60)
+            
+            if self.provider == 'deepseek':
+                response = self._call_deepseek_api(prompt)
+            else:
+                response = self._call_qianwen_api(prompt)
+            
+            print(f"✅ AI API调用成功，响应长度: {len(response)} 字符")
+            parsed_response = self._parse_daily_plan_response(response)
+            
+            # 验证返回的数据结构
+            if not parsed_response or 'daily_diet' not in parsed_response:
+                print("⚠️ AI返回的数据格式不正确，降级到模拟模式")
+                result = self._generate_simulation_daily_plan(profile_data, target_weight_gain_kg, weeks, log_data)
+                result['_is_ai_generated'] = False
+                result['_mode'] = 'simulation'
+                result['_reason'] = 'invalid_ai_response'
+                return result
+            
+            # 标记为AI生成
+            parsed_response['_is_ai_generated'] = True
+            parsed_response['_mode'] = 'ai'
+            parsed_response['_provider'] = self.provider
+            print("=" * 60)
+            print("✅ 【真实AI模式】每日计划生成完成（由AI生成）")
+            print("=" * 60)
+            return parsed_response
+        except Exception as e:
+            print("=" * 60)
+            print(f"❌ 【降级到模拟模式】AI API调用失败: {str(e)}")
+            print("=" * 60)
+            import traceback
+            print(f"详细错误: {traceback.format_exc()}")
+            # 确保即使API失败也返回模拟数据
+            result = self._generate_simulation_daily_plan(profile_data, target_weight_gain_kg, weeks, log_data)
+            result['_is_ai_generated'] = False
+            result['_mode'] = 'simulation'
+            result['_reason'] = f'api_error: {str(e)[:100]}'
+            return result
+
+    def _build_daily_plan_prompt(self, profile_data, target_weight_gain_kg, weeks, log_data=None):
+        """构建每日计划提示词"""
+        current_weight = profile_data.get('weight_kg', 60)
+        bmr = profile_data.get('bmr', 1500)
+        age = profile_data.get('age', 25)
+        gender = profile_data.get('gender', '未知')
+        height = profile_data.get('height_cm', 170)
+        
+        # 计算每日需要增加的热量
+        # 7700kcal = 1kg，所以目标增重需要的总热量 = target_weight_gain_kg * 7700
+        total_calories_needed = target_weight_gain_kg * 7700
+        daily_calorie_surplus = total_calories_needed / (weeks * 7)
+        
+        # 构建当前饮食情况描述
+        current_diet_info = ""
+        if log_data and log_data.get('log_count', 0) > 0:
+            avg_intake = log_data.get('avg_daily_intake', 0)
+            avg_expenditure = log_data.get('avg_daily_expenditure', 0)
+            carb_pct = log_data.get('carb_percent', 50)
+            protein_pct = log_data.get('protein_percent', 20)
+            fat_pct = log_data.get('fat_percent', 30)
+            exercise_duration = log_data.get('exercise_duration', 0)
+            steps = log_data.get('steps', 0)
+            log_count = log_data.get('log_count', 0)
+            
+            current_diet_info = f"""
+【用户当前饮食情况（近30天统计，共{log_count}条记录）】
+- 平均每日热量摄入: {avg_intake:.0f}kcal
+- 平均每日热量消耗: {avg_expenditure:.0f}kcal
+- 平均热量平衡: {avg_intake - avg_expenditure:+.0f}kcal/天
+- 营养素比例: 碳水化合物 {carb_pct:.1f}%, 蛋白质 {protein_pct:.1f}%, 脂肪 {fat_pct:.1f}%
+- 平均运动时长: {exercise_duration:.0f}分钟/天
+- 平均步数: {steps:.0f}步/天
+
+【分析要求】
+请基于用户当前的饮食和运动习惯，制定一个渐进式的增重计划。考虑：
+1. 用户当前的热量摄入水平，建议在现有基础上逐步增加
+2. 用户当前的营养素比例，适当调整以支持健康增重
+3. 用户当前的运动习惯，建议增加力量训练以促进肌肉增长
+4. 避免过快增重导致脂肪堆积过多
+"""
+        else:
+            current_diet_info = """
+【用户当前饮食情况】
+- 用户暂无近30天的饮食记录
+- 建议基于基础代谢率(BMR)制定初始计划
+"""
+        
+        prompt = f"""【角色】你是一位资深的注册营养师和运动教练，拥有10年以上临床经验。
+
+【任务】根据用户的目标增重需求，制定详细的每日饮食和运动计划。
+
+【用户基本信息】
+- 年龄: {age}岁
+- 性别: {gender}
+- 身高: {height}cm
+- 当前体重: {current_weight}kg
+- 基础代谢率(BMR): {bmr}kcal
+- BMI: {profile_data.get('bmi', '未知')}
+
+【目标设定】
+- 目标增重: {target_weight_gain_kg}kg
+- 计划周期: {weeks}周
+- 平均每日需要热量盈余: 约{daily_calorie_surplus:.0f}kcal
+
+{current_diet_info}
+
+【要求】
+1. 制定每日饮食建议（不需要具体到每一餐，只需要每日总量和主要食物类型）：
+   - 每日总热量摄入建议（kcal）
+   - 碳水化合物摄入量（g）和主要来源（如：米饭、面条、全麦面包等）
+   - 蛋白质摄入量（g）和主要来源（如：鸡胸肉、鸡蛋、牛奶、豆类等）
+   - 脂肪摄入量（g）和主要来源（如：坚果、橄榄油、鱼油等）
+   - 膳食纤维建议（g）
+   - 每日饮水量建议（L）
+
+2. 制定每日运动建议：
+   - 有氧运动类型、时长和强度
+   - 力量训练建议（如果有）
+   - 日常活动建议（步数等）
+   - 休息和恢复建议
+
+3. 注意事项和风险提示
+
+【输出格式】严格使用JSON格式：
+{{
+  "daily_diet": {{
+    "total_calories": 2500,
+    "carbohydrates": {{
+      "amount": 300,
+      "unit": "g",
+      "sources": ["米饭", "全麦面包", "燕麦", "红薯"]
+    }},
+    "protein": {{
+      "amount": 120,
+      "unit": "g",
+      "sources": ["鸡胸肉", "鸡蛋", "牛奶", "豆类"]
+    }},
+    "fat": {{
+      "amount": 80,
+      "unit": "g",
+      "sources": ["坚果", "橄榄油", "鱼油"]
+    }},
+    "fiber": {{
+      "amount": 30,
+      "unit": "g"
+    }},
+    "water": {{
+      "amount": 2.5,
+      "unit": "L"
+    }},
+    "notes": ["建议分3-4餐进食", "运动前后适当补充碳水"]
+  }},
+  "daily_exercise": {{
+    "aerobic": {{
+      "type": "快走或慢跑",
+      "duration": 30,
+      "unit": "分钟",
+      "frequency": "每周3-4次",
+      "intensity": "中等强度"
+    }},
+    "strength": {{
+      "type": "力量训练",
+      "duration": 45,
+      "unit": "分钟",
+      "frequency": "每周2-3次",
+      "focus": "全身大肌群"
+    }},
+    "steps": {{
+      "target": 8000,
+      "unit": "步"
+    }},
+    "rest": "每周至少1-2天完全休息"
+  }},
+  "notes": ["注意事项1", "注意事项2"],
+  "risks": ["潜在风险1", "潜在风险2"]
+}}"""
+        return prompt
+
+    def _parse_daily_plan_response(self, response_text):
+        """解析每日计划响应"""
+        try:
+            # 尝试提取JSON
+            response_text = response_text.strip()
+            if response_text.startswith('```json'):
+                response_text = response_text[7:]
+            if response_text.startswith('```'):
+                response_text = response_text[3:]
+            if response_text.endswith('```'):
+                response_text = response_text[:-3]
+            response_text = response_text.strip()
+            
+            # 尝试找到JSON部分
+            json_start = response_text.find('{')
+            json_end = response_text.rfind('}') + 1
+            if json_start != -1 and json_end > json_start:
+                response_text = response_text[json_start:json_end]
+            
+            result = json.loads(response_text)
+            return result
+        except json.JSONDecodeError as e:
+            print(f"❌ JSON解析失败: {str(e)}")
+            print(f"响应内容前500字符: {response_text[:500]}")
+            return self._generate_simulation_daily_plan({}, 0, 4, None)
+        except Exception as e:
+            print(f"❌ 解析AI响应时出错: {str(e)}")
+            import traceback
+            print(f"详细错误: {traceback.format_exc()}")
+            return self._generate_simulation_daily_plan({}, 0, 4, None)
+
+    def _generate_simulation_daily_plan(self, profile_data, target_weight_gain_kg, weeks, log_data=None):
+        """生成模拟的每日计划（基于规则）"""
+        print(f"📝 【模拟模式】使用基于规则的算法生成每日计划")
+        print(f"   目标增重: {target_weight_gain_kg}kg, 周期: {weeks}周")
+        
+        try:
+            current_weight = float(profile_data.get('weight_kg', 60) or 60)
+            bmr = float(profile_data.get('bmr', 1500) or 1500)
+        except (ValueError, TypeError):
+            current_weight = 60
+            bmr = 1500
+            print("⚠️ 用户档案数据不完整，使用默认值")
+        
+        # 如果有用户的历史记录，基于历史记录计算目标热量
+        if log_data and log_data.get('log_count', 0) > 0:
+            avg_intake = log_data.get('avg_daily_intake', bmr * 1.2)
+            avg_expenditure = log_data.get('avg_daily_expenditure', bmr * 1.2)
+            # 基于当前平均摄入量，增加所需的热量盈余
+            total_calories_needed = target_weight_gain_kg * 7700
+            daily_calorie_surplus = total_calories_needed / (weeks * 7)
+            target_calories = avg_intake + daily_calorie_surplus
+            
+            # 使用历史营养素比例作为参考
+            carb_pct = log_data.get('carb_percent', 50)
+            protein_pct = log_data.get('protein_percent', 20)
+            fat_pct = log_data.get('fat_percent', 30)
+            
+            print(f"📊 基于历史记录: 当前平均摄入{avg_intake:.0f}kcal，目标摄入{target_calories:.0f}kcal")
+        else:
+            # 没有历史记录，使用BMR计算
+            total_calories_needed = target_weight_gain_kg * 7700
+            daily_calorie_surplus = total_calories_needed / (weeks * 7)
+            target_calories = bmr * 1.5 + daily_calorie_surplus  # BMR * 1.5 作为基础活动量
+            
+            # 使用标准比例
+            carb_pct = 50
+            protein_pct = 20
+            fat_pct = 30
+        
+        # 计算营养素分配（增重期间适当增加蛋白质和碳水）
+        protein_grams = current_weight * 1.8  # 每公斤体重1.8g蛋白质
+        carb_grams = (target_calories * (carb_pct / 100)) / 4  # 基于历史比例或标准比例
+        fat_grams = (target_calories * (fat_pct / 100)) / 9
+        
+        print(f"✅ 模拟计划计算完成: 目标热量={int(target_calories)}kcal, 蛋白质={int(protein_grams)}g")
+        
+        return {
+            "daily_diet": {
+                "total_calories": int(target_calories),
+                "carbohydrates": {
+                    "amount": int(carb_grams),
+                    "unit": "g",
+                    "sources": ["米饭", "全麦面包", "燕麦", "红薯", "香蕉"]
+                },
+                "protein": {
+                    "amount": int(protein_grams),
+                    "unit": "g",
+                    "sources": ["鸡胸肉", "瘦牛肉", "鸡蛋", "牛奶", "豆类", "鱼"]
+                },
+                "fat": {
+                    "amount": int(fat_grams),
+                    "unit": "g",
+                    "sources": ["坚果", "橄榄油", "牛油果", "鱼油"]
+                },
+                "fiber": {
+                    "amount": 30,
+                    "unit": "g"
+                },
+                "water": {
+                    "amount": 2.5,
+                    "unit": "L"
+                },
+                "notes": [
+                    "建议分3-4餐进食，每餐间隔3-4小时",
+                    "运动前后1小时内补充碳水",
+                    "睡前可适量补充蛋白质"
+                ]
+            },
+            "daily_exercise": {
+                "aerobic": {
+                    "type": "快走或慢跑",
+                    "duration": 30,
+                    "unit": "分钟",
+                    "frequency": "每周3-4次",
+                    "intensity": "中等强度（心率控制在最大心率的60-70%）"
+                },
+                "strength": {
+                    "type": "力量训练",
+                    "duration": 45,
+                    "unit": "分钟",
+                    "frequency": "每周2-3次",
+                    "focus": "全身大肌群（深蹲、卧推、硬拉等）"
+                },
+                "steps": {
+                    "target": 8000,
+                    "unit": "步"
+                },
+                "rest": "每周至少1-2天完全休息，保证充足睡眠"
+            },
+            "notes": [
+                "增重期间注意营养均衡，避免只增脂肪",
+                "力量训练有助于增加肌肉量",
+                "保证充足睡眠（7-9小时）有助于恢复和增重"
+            ],
+            "risks": [
+                "过快增重可能导致脂肪增加过多",
+                "热量摄入过高可能影响消化系统"
             ]
         }
 

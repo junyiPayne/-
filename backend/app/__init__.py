@@ -12,11 +12,66 @@ jwt = JWTManager()
 
 def create_app(config_name=None):
     """应用工厂函数"""
-    app = Flask(__name__)
+    app = Flask(__name__, instance_relative_config=True)
+    
+    # 确保instance目录存在（用于存储SQLite数据库等）
+    try:
+        os.makedirs(app.instance_path, exist_ok=True)
+    except OSError:
+        pass
     
     # 加载配置
     config_name = config_name or os.environ.get('FLASK_ENV', 'development')
     app.config.from_object(config[config_name])
+    
+    # 数据库初始化检查（仅对SQLite）
+    db_uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+    if db_uri.startswith('sqlite:///'):
+        db_path = db_uri.replace('sqlite:///', '')
+        if os.path.exists(db_path):
+            file_size = os.path.getsize(db_path)
+            if app.config.get('DEBUG'):
+                print(f"[DEBUG] 数据库文件已存在: {db_path} (大小: {file_size} 字节)")
+        else:
+            if app.config.get('DEBUG'):
+                print(f"[DEBUG] 数据库文件不存在，将在首次使用时创建: {db_path}")
+    
+    # 如果使用SQLite且路径是相对路径，确保使用instance目录并转换为绝对路径
+    db_uri = app.config['SQLALCHEMY_DATABASE_URI']
+    if db_uri.startswith('sqlite:///') and not os.environ.get('DATABASE_URL'):
+        db_path = db_uri.replace('sqlite:///', '')
+        
+        # 确保instance目录存在
+        os.makedirs(app.instance_path, exist_ok=True)
+        
+        # 检查路径是否是绝对路径
+        if not os.path.isabs(db_path):
+            # 相对路径，使用instance目录
+            # 如果db_path只是文件名（如bs_system.db），直接拼接
+            # 如果db_path包含路径（如instance/bs_system.db），需要处理
+            if '/' in db_path or '\\' in db_path:
+                # 包含路径分隔符，提取文件名
+                db_filename = os.path.basename(db_path)
+            else:
+                # 只是文件名
+                db_filename = db_path
+            
+            # 使用instance目录和文件名构建绝对路径
+            db_file = os.path.abspath(os.path.join(app.instance_path, db_filename))
+        else:
+            # 已经是绝对路径，直接使用
+            db_file = os.path.abspath(db_path)
+        
+        # SQLite URI格式：sqlite:///绝对路径（注意是3个斜杠）
+        # 确保路径是绝对路径
+        app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_file}'
+        
+        # 调试信息（开发环境）
+        if app.config.get('DEBUG'):
+            print(f"[DEBUG] 原始数据库URI: {db_uri}")
+            print(f"[DEBUG] Instance路径: {app.instance_path}")
+            print(f"[DEBUG] 最终数据库文件路径: {db_file}")
+            print(f"[DEBUG] 最终数据库URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
     
     # 生产环境初始化
     if config_name == 'production' and hasattr(config[config_name], 'init_app'):

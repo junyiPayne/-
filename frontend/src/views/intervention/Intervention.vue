@@ -12,6 +12,166 @@
           </template>
           
           <el-tabs v-model="activeTab">
+            <!-- 目标增重 -->
+            <el-tab-pane label="目标增重" name="weight-gain">
+              <div class="weight-gain-section">
+                <div style="margin-bottom: 20px;">
+                  <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 8px; color: #606266; font-weight: 500;">目标增重:</label>
+                    <el-input-number 
+                      v-model="weightGainForm.targetWeight" 
+                      :min="1" 
+                      :max="50" 
+                      :step="1"
+                      style="width: 200px;"
+                    />
+                    <span style="margin-left: 10px; color: #606266;">斤</span>
+                  </div>
+                  <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 8px; color: #606266; font-weight: 500;">计划周期:</label>
+                    <el-radio-group v-model="weightGainForm.weeks">
+                      <el-radio-button :label="4">4周</el-radio-button>
+                      <el-radio-button :label="8">8周</el-radio-button>
+                      <el-radio-button :label="12">12周</el-radio-button>
+                    </el-radio-group>
+                  </div>
+                  <div>
+                    <el-button 
+                      type="primary" 
+                      @click="handleGenerateDailyPlan"
+                      :loading="dailyPlanLoading"
+                      :disabled="!weightGainForm.targetWeight || weightGainForm.targetWeight <= 0"
+                      style="width: 100%;"
+                    >
+                      <el-icon style="margin-right: 5px"><MagicStick /></el-icon>
+                      {{ dailyPlanLoading ? '正在生成...' : '生成每日计划' }}
+                    </el-button>
+                  </div>
+                </div>
+                
+                <!-- 每日计划展示 -->
+                <div v-if="dailyPlan" style="margin-top: 20px;">
+                  <el-divider />
+                  <!-- AI模式标识 -->
+                  <div v-if="dailyPlanMode" style="margin-bottom: 15px; padding: 10px; border-radius: 4px;" 
+                       :style="dailyPlanMode === 'ai' ? 'background: #e1f3d8; border: 1px solid #67c23a;' : 'background: #fdf6ec; border: 1px solid #e6a23c;'">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                      <div>
+                        <el-icon v-if="dailyPlanMode === 'ai'" style="color: #67c23a; margin-right: 5px;"><Check /></el-icon>
+                        <el-icon v-else style="color: #e6a23c; margin-right: 5px;"><Warning /></el-icon>
+                        <strong v-if="dailyPlanMode === 'ai'" style="color: #67c23a;">
+                          🤖 使用真实AI生成（{{ dailyPlanProvider?.toUpperCase() || 'AI' }}）
+                        </strong>
+                        <strong v-else style="color: #e6a23c;">
+                          📝 使用模拟模式生成（基于规则算法）
+                        </strong>
+                      </div>
+                      <el-tag v-if="dailyPlanMode === 'ai'" type="success" size="small">AI生成</el-tag>
+                      <el-tag v-else type="warning" size="small">模拟模式</el-tag>
+                    </div>
+                  </div>
+                  <div class="daily-plan-display">
+                    <!-- 每日饮食建议 -->
+                    <el-card shadow="hover" style="margin-bottom: 15px;">
+                      <template #header>
+                        <div style="font-weight: bold; color: #409EFF;">
+                          <el-icon style="margin-right: 5px"><Food /></el-icon>
+                          每日饮食建议
+                        </div>
+                      </template>
+                      <div v-if="dailyPlan.daily_diet">
+                        <div style="margin-bottom: 10px;">
+                          <strong>总热量:</strong> {{ dailyPlan.daily_diet.total_calories }} kcal
+                        </div>
+                        <div style="margin-bottom: 10px;">
+                          <strong>碳水化合物:</strong> {{ dailyPlan.daily_diet.carbohydrates?.amount }} {{ dailyPlan.daily_diet.carbohydrates?.unit }}
+                          <span v-if="dailyPlan.daily_diet.carbohydrates?.sources" style="color: #909399; font-size: 12px; margin-left: 10px;">
+                            ({{ dailyPlan.daily_diet.carbohydrates.sources.join('、') }})
+                          </span>
+                        </div>
+                        <div style="margin-bottom: 10px;">
+                          <strong>蛋白质:</strong> {{ dailyPlan.daily_diet.protein?.amount }} {{ dailyPlan.daily_diet.protein?.unit }}
+                          <span v-if="dailyPlan.daily_diet.protein?.sources" style="color: #909399; font-size: 12px; margin-left: 10px;">
+                            ({{ dailyPlan.daily_diet.protein.sources.join('、') }})
+                          </span>
+                        </div>
+                        <div style="margin-bottom: 10px;">
+                          <strong>脂肪:</strong> {{ dailyPlan.daily_diet.fat?.amount }} {{ dailyPlan.daily_diet.fat?.unit }}
+                          <span v-if="dailyPlan.daily_diet.fat?.sources" style="color: #909399; font-size: 12px; margin-left: 10px;">
+                            ({{ dailyPlan.daily_diet.fat.sources.join('、') }})
+                          </span>
+                        </div>
+                        <div style="margin-bottom: 10px;">
+                          <strong>膳食纤维:</strong> {{ dailyPlan.daily_diet.fiber?.amount }} {{ dailyPlan.daily_diet.fiber?.unit }}
+                        </div>
+                        <div style="margin-bottom: 10px;">
+                          <strong>饮水量:</strong> {{ dailyPlan.daily_diet.water?.amount }} {{ dailyPlan.daily_diet.water?.unit }}
+                        </div>
+                        <div v-if="dailyPlan.daily_diet.notes && dailyPlan.daily_diet.notes.length > 0" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee;">
+                          <strong>注意事项:</strong>
+                          <ul style="margin: 5px 0 0 20px; color: #606266;">
+                            <li v-for="(note, idx) in dailyPlan.daily_diet.notes" :key="idx">{{ note }}</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </el-card>
+                    
+                    <!-- 每日运动建议 -->
+                    <el-card shadow="hover" style="margin-bottom: 15px;">
+                      <template #header>
+                        <div style="font-weight: bold; color: #67C23A;">
+                          <el-icon style="margin-right: 5px"><Basketball /></el-icon>
+                          每日运动建议
+                        </div>
+                      </template>
+                      <div v-if="dailyPlan.daily_exercise">
+                        <div v-if="dailyPlan.daily_exercise.aerobic" style="margin-bottom: 10px;">
+                          <strong>有氧运动:</strong> {{ dailyPlan.daily_exercise.aerobic.type }}，{{ dailyPlan.daily_exercise.aerobic.duration }} {{ dailyPlan.daily_exercise.aerobic.unit }}，{{ dailyPlan.daily_exercise.aerobic.frequency }}
+                          <span v-if="dailyPlan.daily_exercise.aerobic.intensity" style="color: #909399; font-size: 12px; margin-left: 10px;">
+                            ({{ dailyPlan.daily_exercise.aerobic.intensity }})
+                          </span>
+                        </div>
+                        <div v-if="dailyPlan.daily_exercise.strength" style="margin-bottom: 10px;">
+                          <strong>力量训练:</strong> {{ dailyPlan.daily_exercise.strength.type }}，{{ dailyPlan.daily_exercise.strength.duration }} {{ dailyPlan.daily_exercise.strength.unit }}，{{ dailyPlan.daily_exercise.strength.frequency }}
+                          <span v-if="dailyPlan.daily_exercise.strength.focus" style="color: #909399; font-size: 12px; margin-left: 10px;">
+                            ({{ dailyPlan.daily_exercise.strength.focus }})
+                          </span>
+                        </div>
+                        <div v-if="dailyPlan.daily_exercise.steps" style="margin-bottom: 10px;">
+                          <strong>日常步数:</strong> {{ dailyPlan.daily_exercise.steps.target }} {{ dailyPlan.daily_exercise.steps.unit }}
+                        </div>
+                        <div v-if="dailyPlan.daily_exercise.rest" style="margin-bottom: 10px;">
+                          <strong>休息建议:</strong> {{ dailyPlan.daily_exercise.rest }}
+                        </div>
+                      </div>
+                    </el-card>
+                    
+                    <!-- 注意事项和风险 -->
+                    <el-card shadow="hover" v-if="dailyPlan.notes || dailyPlan.risks">
+                      <template #header>
+                        <div style="font-weight: bold; color: #E6A23C;">
+                          <el-icon style="margin-right: 5px"><Warning /></el-icon>
+                          注意事项与风险提示
+                        </div>
+                      </template>
+                      <div v-if="dailyPlan.notes && dailyPlan.notes.length > 0" style="margin-bottom: 15px;">
+                        <strong>注意事项:</strong>
+                        <ul style="margin: 5px 0 0 20px; color: #606266;">
+                          <li v-for="(note, idx) in dailyPlan.notes" :key="idx">{{ note }}</li>
+                        </ul>
+                      </div>
+                      <div v-if="dailyPlan.risks && dailyPlan.risks.length > 0">
+                        <strong style="color: #F56C6C;">潜在风险:</strong>
+                        <ul style="margin: 5px 0 0 20px; color: #F56C6C;">
+                          <li v-for="(risk, idx) in dailyPlan.risks" :key="idx">{{ risk }}</li>
+                        </ul>
+                      </div>
+                    </el-card>
+                  </div>
+                </div>
+              </div>
+            </el-tab-pane>
+            
             <!-- 膳食干预 -->
             <el-tab-pane label="膳食干预" name="diet">
               <div class="slider-group">
@@ -41,6 +201,28 @@
                   <el-slider v-model="dietPlan.calories" :min="1000" :max="4000" :step="50" @input="updatePrediction" />
                 </div>
               </div>
+              
+              <!-- 预测时长和AI预测按钮 -->
+              <div class="action-area" style="margin-top: 20px;">
+                <div style="margin-bottom: 10px; font-size: 14px; color: #606266;">预测时长:</div>
+                <el-radio-group v-model="predictionWeeks" style="width: 100%; margin-bottom: 15px;" @change="updatePrediction">
+                  <el-radio-button :label="1">1周</el-radio-button>
+                  <el-radio-button :label="4">4周</el-radio-button>
+                  <el-radio-button :label="12">12周</el-radio-button>
+                </el-radio-group>
+                
+                <el-button 
+                  type="primary" 
+                  class="w-100" 
+                  @click="runSimulation" 
+                  :loading="loading"
+                  :disabled="!logsFilled"
+                  :class="{ 'highlight-btn': logsFilled }"
+                >
+                  <el-icon style="margin-right: 5px"><MagicStick /></el-icon>
+                  {{ logsFilled ? '几周后我会怎样（AI预测）' : '请先完成今日日志' }}
+                </el-button>
+              </div>
             </el-tab-pane>
             
             <!-- 运动干预 -->
@@ -68,29 +250,30 @@
                   <el-slider v-model="exercisePlan.steps" :min="2000" :max="20000" :step="500" @input="updatePrediction" />
                 </div>
               </div>
+              
+              <!-- 预测时长和AI预测按钮 -->
+              <div class="action-area" style="margin-top: 20px;">
+                <div style="margin-bottom: 10px; font-size: 14px; color: #606266;">预测时长:</div>
+                <el-radio-group v-model="predictionWeeks" style="width: 100%; margin-bottom: 15px;" @change="updatePrediction">
+                  <el-radio-button :label="1">1周</el-radio-button>
+                  <el-radio-button :label="4">4周</el-radio-button>
+                  <el-radio-button :label="12">12周</el-radio-button>
+                </el-radio-group>
+                
+                <el-button 
+                  type="primary" 
+                  class="w-100" 
+                  @click="runSimulation" 
+                  :loading="loading"
+                  :disabled="!logsFilled"
+                  :class="{ 'highlight-btn': logsFilled }"
+                >
+                  <el-icon style="margin-right: 5px"><MagicStick /></el-icon>
+                  {{ logsFilled ? '几周后我会怎样（AI预测）' : '请先完成今日日志' }}
+                </el-button>
+              </div>
             </el-tab-pane>
           </el-tabs>
-          
-          <div class="action-area" style="margin-top: 20px;">
-            <div style="margin-bottom: 10px; font-size: 14px; color: #606266;">预测时长:</div>
-            <el-radio-group v-model="predictionWeeks" style="width: 100%; margin-bottom: 15px;" @change="updatePrediction">
-              <el-radio-button :label="1">1周</el-radio-button>
-              <el-radio-button :label="4">4周</el-radio-button>
-              <el-radio-button :label="12">12周</el-radio-button>
-            </el-radio-group>
-            
-            <el-button 
-              type="primary" 
-              class="w-100" 
-              @click="runSimulation" 
-              :loading="loading"
-              :disabled="!logsFilled"
-              :class="{ 'highlight-btn': logsFilled }"
-            >
-              <el-icon style="margin-right: 5px"><MagicStick /></el-icon>
-              {{ logsFilled ? '几周后我会怎样（AI预测）' : '请先完成今日日志' }}
-            </el-button>
-          </div>
         </el-card>
       </el-col>
       
@@ -148,7 +331,7 @@
 <script setup>
 import { ref, reactive, onMounted, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
-import { MagicStick, Document } from '@element-plus/icons-vue'
+import { MagicStick, Document, Food, Basketball, Warning, Check } from '@element-plus/icons-vue'
 import { getProfile } from '@/api/profile'
 import { getDailyLog } from '@/api/dailyLog'
 import request from '@/api/request'
@@ -166,6 +349,15 @@ const simulationResult = ref(null)
 const userProfile = ref(null)
 const linearData = ref([])
 const aiData = ref([])
+const dailyPlan = ref(null)
+const dailyPlanLoading = ref(false)
+const dailyPlanMode = ref(null) // 'ai' 或 'simulation'
+const dailyPlanProvider = ref(null) // 'deepseek' 或 'qwen'
+
+const weightGainForm = reactive({
+  targetWeight: 5, // 默认5斤
+  weeks: 4
+})
 
 const dietPlan = reactive({
   carb: 50,
@@ -635,6 +827,105 @@ const exportReport = async () => {
     loading.value = false
   }
 }
+
+// 处理生成每日计划（包装函数，用于调试）
+const handleGenerateDailyPlan = (event) => {
+  console.log('🔵 handleGenerateDailyPlan 被调用', event)
+  if (event) {
+    event.preventDefault()
+    event.stopPropagation()
+  }
+  generateDailyPlan()
+}
+
+// 测试函数（用于调试）
+const testGenerateDailyPlan = () => {
+  console.log('🧪 测试函数被调用')
+  console.log('🧪 weightGainForm:', weightGainForm)
+  console.log('🧪 generateDailyPlan 函数类型:', typeof generateDailyPlan)
+  if (typeof generateDailyPlan === 'function') {
+    console.log('🧪 直接调用 generateDailyPlan')
+    generateDailyPlan()
+  } else {
+    console.error('❌ generateDailyPlan 不是一个函数!')
+  }
+}
+
+// 生成每日计划
+const generateDailyPlan = async () => {
+  console.log('🔵 generateDailyPlan 函数被调用')
+  console.log('🔵 表单数据:', weightGainForm)
+  console.log('🔵 targetWeight 值:', weightGainForm.targetWeight)
+  console.log('🔵 targetWeight 类型:', typeof weightGainForm.targetWeight)
+  
+  if (!weightGainForm.targetWeight || weightGainForm.targetWeight <= 0) {
+    console.warn('⚠️ 目标增重量无效:', weightGainForm.targetWeight)
+    ElMessage.warning('请输入有效的目标增重量')
+    return
+  }
+
+  console.log('✅ 开始发送请求...')
+  dailyPlanLoading.value = true
+  
+  try {
+    const requestData = {
+      target_weight_gain: weightGainForm.targetWeight,
+      weeks: weightGainForm.weeks
+    }
+    
+    console.log('📤 发送每日计划请求到 /ai/daily-plan:', requestData)
+    console.log('📤 请求URL:', '/api/ai/daily-plan')
+    
+    const res = await request.post('/ai/daily-plan', requestData)
+    
+    console.log('📥 收到响应:', res)
+    console.log('📥 响应数据:', res.data)
+    
+    if (res.data && res.data.code === 200) {
+      dailyPlan.value = res.data.data.daily_plan
+      dailyPlanMode.value = res.data.data.is_ai_generated ? 'ai' : 'simulation'
+      dailyPlanProvider.value = res.data.data.provider || null
+      
+      const message = res.data.data.is_ai_generated
+        ? `每日计划生成成功（AI生成，使用${res.data.data.provider?.toUpperCase() || 'AI'}）`
+        : '每日计划生成成功（模拟模式）'
+      ElMessage.success(message)
+      
+      console.log('✅ 每日计划设置成功')
+      console.log('📊 生成模式:', dailyPlanMode.value)
+      console.log('📊 AI服务商:', dailyPlanProvider.value)
+      console.log('📊 计划内容:', dailyPlan.value)
+    } else {
+      console.error('❌ 响应错误:', res.data)
+      ElMessage.error(res.data?.message || '生成计划失败')
+    }
+  } catch (error) {
+    console.error('❌ 生成每日计划失败:', error)
+    console.error('❌ 错误类型:', error.constructor.name)
+    console.error('❌ 错误详情:', {
+      message: error.message,
+      response: error.response,
+      responseData: error.response?.data,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      config: error.config
+    })
+    
+    // 检查是否是网络错误
+    if (!error.response) {
+      console.error('❌ 网络错误：请求未到达服务器')
+      ElMessage.error('网络错误：无法连接到服务器，请检查后端服务是否运行')
+    } else {
+      const errorMessage = error.response?.data?.message || 
+                          error.message || 
+                          '生成计划失败，请检查网络连接或后端服务'
+      ElMessage.error(errorMessage)
+    }
+  } finally {
+    dailyPlanLoading.value = false
+    console.log('🔵 请求完成，loading状态已重置')
+  }
+}
 </script>
 
 <style scoped>
@@ -672,8 +963,8 @@ const exportReport = async () => {
   vertical-align: middle;
   margin: 0 5px;
 }
-.dot.dashed { border-top: 2px dashed #909399; }
-.dot.solid { border-top: 2px solid #409EFF; }
+.dot.dashed { border-top: 2px dashed #409EFF; }
+.dot.solid { border-top: 2px solid #67C23A; }
 
 .result-panel {
   width: 100%;

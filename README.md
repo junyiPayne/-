@@ -168,16 +168,41 @@ BS系统/
 
 ## 快速开始
 
-### 方式一：快速启动（开发环境）
+### 方式一：一键启动（推荐，最简单）
 
 详细步骤请参考 [`快速启动.md`](./快速启动.md)
 
-**三步启动：**
-1. 初始化数据库：`cd backend && python init_database.py`
-2. 启动后端：`python run.py`
-3. 启动前端：`cd frontend && npm install && npm run serve`
+**本地开发模式：**
+- macOS/Linux: `./start-local.sh`
+- Windows: `start-local.bat`
 
-### 方式二：生产环境部署
+**Docker开发模式：**
+- 所有平台: `./start-docker.sh`
+
+就这么简单！脚本会自动检查环境、安装依赖、初始化数据库并启动服务。
+
+### 方式二：手动启动（高级用户）
+
+如果一键启动脚本无法使用，可以手动启动：
+
+**后端：**
+```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate  # macOS/Linux
+pip install -r requirements.txt
+python init_database.py
+python run.py
+```
+
+**前端（新终端）：**
+```bash
+cd frontend
+npm install
+npm run serve
+```
+
+### 方式三：生产环境部署
 
 详细步骤请参考 [`deploy.md`](./deploy.md)
 
@@ -188,7 +213,7 @@ BS系统/
 4. 构建前端：`cd frontend && npm install && npm run build`
 5. 配置Nginx：参考 `nginx.conf` 和 `deploy.md`
 
-### 方式三：Docker部署（推荐）
+### 方式四：Docker生产部署（推荐）
 
 ```bash
 # 使用 Docker Compose 一键部署

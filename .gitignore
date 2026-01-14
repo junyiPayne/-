@@ -65,3 +65,10 @@ frontend/.eslintcache
 
 # Logs
 *.log
+backend.log
+frontend.log
+
+# PID files
+*.pid
+backend.pid
+frontend.pid

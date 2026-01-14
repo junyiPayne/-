@@ -13,9 +13,14 @@ def health_check():
     try:
         # 检查数据库连接
         db.session.execute(text('SELECT 1'))
+        db.session.commit()
         db_status = 'healthy'
     except Exception as e:
         db_status = f'unhealthy: {str(e)}'
+        # 记录详细错误信息（用于调试）
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"数据库健康检查失败: {str(e)}", exc_info=True)
     
     # 检查磁盘空间（可选）
     try:
