@@ -49,77 +49,64 @@ BS系统是一个基于Browser/Server架构的学生运动生理健康管理系�
 - **Docker** - 容器化部署（可选）
 - **Gunicorn** - 生产环境WSGI服务器
 
-## 项目结构
+## 项目结构（已按启动方式和职责重新梳理）
 
 ```
-BS系统/
-├── backend/                    # 后端代码
+学生健康管理系统/
+├── backend/                        # 后端（Flask）
 │   ├── app/
-│   │   ├── models/            # 数据模型
-│   │   │   ├── user.py        # 用户模型
-│   │   │   ├── role.py        # 角色权限模型
-│   │   │   ├── profile.py     # 用户档案模型
-│   │   │   ├── daily_log.py   # 每日日志模型
-│   │   │   ├── report.py      # 报告模型
-│   │   │   └── business.py    # 业务数据模型
-│   │   ├── routes/            # API路由
-│   │   │   ├── auth.py        # 认证路由
-│   │   │   ├── users.py       # 用户管理路由
-│   │   │   ├── profile.py     # 档案管理路由
-│   │   │   ├── daily_log.py   # 日志管理路由
-│   │   │   ├── report.py      # 报告管理路由
-│   │   │   ├── ai.py          # AI服务路由
-│   │   │   ├── health.py      # 健康检查路由
-│   │   │   └── roles.py       # 角色管理路由
-│   │   ├── services/          # 业务服务层
-│   │   │   └── ai_service.py  # AI服务封装
-│   │   ├── utils/             # 工具函数
-│   │   │   ├── calculations.py # 计算公式模块
-│   │   │   ├── decorators.py  # 装饰器
-│   │   │   ├── errors.py       # 异常处理
-│   │   │   └── response.py    # 响应格式化
-│   │   └── static/            # 静态文件
-│   │       ├── avatars/       # 头像文件
-│   │       ├── uploads/       # 上传文件
-│   │       └── reports/       # 报告文件
-│   ├── config.py              # 配置文件
-│   ├── run.py                 # 开发环境运行入口
-│   ├── run_production.py      # 生产环境运行入口（测试用）
-│   ├── start.sh               # 生产环境启动脚本
-│   ├── stop.sh                # 生产环境停止脚本
-│   ├── gunicorn.conf.py       # Gunicorn配置文件
-│   ├── logging.conf           # 日志配置文件
-│   ├── init_database.py       # 数据库初始化
-│   └── requirements.txt      # Python依赖
-├── frontend/                   # 前端代码
+│   │   ├── models/                # 数据模型（user、role、profile、daily_log、report、business 等）
+│   │   ├── routes/                # API 路由（auth、users、profile、daily_log、report、ai、health 等）
+│   │   ├── services/              # 服务层（ai_service 等）
+│   │   ├── utils/                 # 工具模块（calculations、decorators、errors、response）
+│   │   └── static/                # 静态资源（avatars、uploads、reports）
+│   ├── config.py                  # 配置中心（加载 .env / 环境变量，配置数据库、JWT、CORS 等）
+│   ├── run.py                     # 开发环境入口（本地 5001 端口）
+│   ├── start.sh / stop.sh         # 生产环境启动/停止脚本（结合 Gunicorn 使用）
+│   ├── gunicorn.conf.py           # Gunicorn 配置
+│   ├── logging.conf               # 日志配置
+│   ├── init_database.py           # 数据库初始化与备份恢复逻辑
+│   ├── requirements.txt           # 后端依赖
+│   ├── check_api_config.py        # AI API Key 状态检查与连通性测试工具
+│   └── kill-port.sh               # 快速释放 5001 端口的辅助脚本
+│
+├── frontend/                      # 前端（Vue 3 + Element Plus）
 │   ├── src/
-│   │   ├── views/             # 页面组件
-│   │   │   ├── auth/          # 认证页面
-│   │   │   ├── users/         # 用户管理
-│   │   │   ├── profile/       # 用户档案
-│   │   │   ├── daily-log/      # 每日日志
-│   │   │   ├── statistics/     # 统计分析
-│   │   │   └── business/       # 业务数据
-│   │   ├── api/               # API调用
-│   │   ├── router/            # 路由配置
-│   │   ├── stores/            # 状态管理
-│   │   └── layouts/           # 布局组件
-│   └── package.json           # 前端依赖
-├── docs/                      # 文档目录
+│   │   ├── views/                 # 页面组件（登录、DashBoard、干预工坊、统计、报告等）
+│   │   ├── api/                   # Axios 封装的 API 调用
+│   │   ├── router/                # 路由配置
+│   │   ├── stores/                # Pinia 状态管理
+│   │   └── layouts/               # 布局组件
+│   ├── public/
+│   ├── package.json
+│   └── vue.config.js             # 本地开发代理配置（转发到后端 5001）
+│
+├── scripts & 工具脚本（位于项目根目录）           # 启动/诊断/修复脚本
+│   ├── start-local.sh / stop-local.sh         # 本地开发一键启动/停止（Python + Node 开发服务器）
+│   ├── start-local.bat / stop-local.bat       # Windows 下本地启动/停止
+│   ├── start-docker.sh                        # Docker 开发/演示一键启动（支持 --rebuild）
+│   ├── check-health.sh                        # 后端健康检查脚本（调用 /api/health）
+│   ├── fix-database.sh / fix-db-path.sh       # 数据库路径与权限常见问题修复
+│   ├── quick-fix-db.sh / restore-database.sh  # 快速重建/从备份恢复 SQLite 数据库
+│   ├── Dockerfile                             # 后端 + 前端打包的基础镜像（Debian bookworm）
+│   ├── Dockerfile.cn                          # 使用国内镜像源的 Dockerfile 优化版
+│   └── docker-compose.yml                     # Docker Compose 编排（backend + db + nginx）
+│
+├── docs/                         # 文档
 │   ├── 01-AI编程实验环境配置.md
 │   ├── 02-概要设计文档.md
 │   ├── 03-详细设计文档.md
 │   ├── 04-用例测试文档.md
 │   ├── 05-使用安装开发说明.md
 │   └── 06-后期展望.md
-├── database/                  # 数据库脚本
-│   └── init.sql
-├── nginx.conf                  # Nginx配置文件
-├── Dockerfile                  # Docker镜像配置
-├── docker-compose.yml         # Docker Compose配置
-├── deploy.md                   # 部署文档
-├── 快速启动.md                 # 快速启动指南
-└── README.md                   # 项目说明
+│
+├── database/
+│   └── init.sql                  # MySQL 初始化脚本（可选）
+├── nginx.conf                    # Nginx 反向代理与静态资源配置
+├── deploy.md                     # 生产部署说明
+├── 快速启动.md                   # 本地 / Docker 一键启动说明
+├── 项目结构图.md                 # Mermaid 项目结构与数据流图
+└── README.md                     # 项目总览（当前文档）
 ```
 
 ## 核心功能模块
