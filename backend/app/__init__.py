@@ -94,9 +94,14 @@ def create_app(config_name=None):
     from app.routes.ai import bp as ai_bp
     from app.routes.admin import bp as admin_bp
     from app.routes.report import report_bp
+    from app.routes.classrooms import bp as classrooms_bp
+    from app.routes.settings import bp as settings_bp
+    from app.routes.gpu_test import bp as gpu_test_bp
     
     # 健康检查路由（不需要认证）
     app.register_blueprint(health_bp, url_prefix='/api')
+    # GPU 测试路由（不需要认证）
+    app.register_blueprint(gpu_test_bp, url_prefix='/api')
     # 其他业务路由
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(users_bp, url_prefix='/api/users')
@@ -107,6 +112,16 @@ def create_app(config_name=None):
     app.register_blueprint(ai_bp, url_prefix='/api/ai')
     app.register_blueprint(admin_bp, url_prefix='/api/admin')
     app.register_blueprint(report_bp, url_prefix='/api/reports')
+    app.register_blueprint(classrooms_bp, url_prefix='/api/classrooms')
+    app.register_blueprint(settings_bp, url_prefix='/api/settings')
+    
+    # 调试：打印所有注册的路由（仅在DEBUG模式下）
+    if app.config.get('DEBUG'):
+        print("\n[DEBUG] 已注册的路由列表:")
+        for rule in app.url_map.iter_rules():
+            if 'admin' in rule.rule or 'background-image' in rule.rule:
+                print(f"  {rule.rule} -> {rule.endpoint} [{', '.join(rule.methods)}]")
+        print()
     
     # 错误处理
     from app.utils.errors import register_error_handlers

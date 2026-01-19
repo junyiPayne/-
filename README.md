@@ -1,8 +1,8 @@
-# BS系统 - 学生运动健康管理系统
+# 学生运动健康管理系统
 
 ## 项目概述
 
-BS系统是一个基于Browser/Server架构的学生运动生理健康管理系统，采用前后端分离的设计模式。系统集成了运动生理基础数据管理、AI健康评估、报告生成等核心功能，为教师和学生提供完整的健康数据管理和分析服务。
+系统是一个基于Browser/Server架构的学生运动生理健康管理系统，采用前后端分离的设计模式。系统集成了运动生理基础数据管理、AI健康评估、报告生成等核心功能，为教师和学生提供完整的健康数据管理和分析服务。
 
 ### 核心功能
 
@@ -37,8 +37,16 @@ BS系统是一个基于Browser/Server架构的学生运动生理健康管理系�
 - **ECharts** 6.0+ - 数据可视化
 
 ### 数据库
-- **SQLite** - 默认数据库（单文件，便于部署）
-- 支持迁移到 **PostgreSQL** / **MySQL**
+- **SQLite** - 本地开发环境（简单易用，无需安装数据库服务）
+- **MySQL 8.0+** - Docker 部署环境（适合生产环境，支持高并发）
+
+**数据库初始化说明：**
+- **本地开发（SQLite）**：
+  - 如果数据库不存在：自动创建 `backend/instance/bs_system.db` 并初始化表结构
+  - 如果数据库已存在：直接使用现有数据库，只创建缺失的表和初始化默认数据
+- **Docker 部署（MySQL）**：
+  - 如果数据库不存在：MySQL 容器自动创建数据库，后端容器初始化表结构和默认数据
+  - 如果数据库已存在：直接使用现有数据库（数据存储在 Docker volume `db_data` 中），只创建缺失的表和初始化默认数据
 
 ### AI服务
 - **DeepSeek API** - AI健康评估
@@ -62,17 +70,15 @@ BS系统是一个基于Browser/Server架构的学生运动生理健康管理系�
 │   │   └── static/                # 静态资源（avatars、uploads、reports）
 │   ├── config.py                  # 配置中心（加载 .env / 环境变量，配置数据库、JWT、CORS 等）
 │   ├── run.py                     # 开发环境入口（本地 5001 端口）
-│   ├── start.sh / stop.sh         # 生产环境启动/停止脚本（结合 Gunicorn 使用）
 │   ├── gunicorn.conf.py           # Gunicorn 配置
 │   ├── logging.conf               # 日志配置
 │   ├── init_database.py           # 数据库初始化与备份恢复逻辑
 │   ├── requirements.txt           # 后端依赖
-│   ├── check_api_config.py        # AI API Key 状态检查与连通性测试工具
-│   └── kill-port.sh               # 快速释放 5001 端口的辅助脚本
+│   └── check_api_config.py        # AI API Key 状态检查与连通性测试工具
 │
 ├── frontend/                      # 前端（Vue 3 + Element Plus）
 │   ├── src/
-│   │   ├── views/                 # 页面组件（登录、DashBoard、干预工坊、统计、报告等）
+│   │   ├── views/                 # 页面组件（登录、DashBoard、AI体重助手、统计、报告等）
 │   │   ├── api/                   # Axios 封装的 API 调用
 │   │   ├── router/                # 路由配置
 │   │   ├── stores/                # Pinia 状态管理
@@ -85,11 +91,7 @@ BS系统是一个基于Browser/Server架构的学生运动生理健康管理系�
 │   ├── start-local.sh / stop-local.sh         # 本地开发一键启动/停止（Python + Node 开发服务器）
 │   ├── start-local.bat / stop-local.bat       # Windows 下本地启动/停止
 │   ├── start-docker.sh                        # Docker 开发/演示一键启动（支持 --rebuild）
-│   ├── check-health.sh                        # 后端健康检查脚本（调用 /api/health）
-│   ├── fix-database.sh / fix-db-path.sh       # 数据库路径与权限常见问题修复
-│   ├── quick-fix-db.sh / restore-database.sh  # 快速重建/从备份恢复 SQLite 数据库
 │   ├── Dockerfile                             # 后端 + 前端打包的基础镜像（Debian bookworm）
-│   ├── Dockerfile.cn                          # 使用国内镜像源的 Dockerfile 优化版
 │   └── docker-compose.yml                     # Docker Compose 编排（backend + db + nginx）
 │
 ├── docs/                         # 文档
@@ -101,10 +103,10 @@ BS系统是一个基于Browser/Server架构的学生运动生理健康管理系�
 │   └── 06-后期展望.md
 │
 ├── database/
-│   └── init.sql                  # MySQL 初始化脚本（可选）
+│   └── init.sql                  # MySQL 初始化脚本
 ├── nginx.conf                    # Nginx 反向代理与静态资源配置
-├── deploy.md                     # 生产部署说明
-├── 快速启动.md                   # 本地 / Docker 一键启动说明
+├── 生产环境部署指南.md           # 生产环境正式部署详细指南
+├── 快速启动.md                   # 本地开发快速启动指南
 ├── 项目结构图.md                 # Mermaid 项目结构与数据流图
 └── README.md                     # 项目总览（当前文档）
 ```
@@ -191,23 +193,41 @@ npm run serve
 
 ### 方式三：生产环境部署
 
-详细步骤请参考 [`deploy.md`](./deploy.md)
+详细步骤请参考 [`生产环境部署指南.md`](./生产环境部署指南.md)
 
-**快速部署：**
-1. 配置环境变量：`cp backend/.env.example backend/.env` 并修改配置
-2. 初始化数据库：`cd backend && python init_database.py`
-3. 启动后端：`cd backend && ./start.sh`
+**快速部署（Docker，推荐）：**
+```bash
+./start-docker.sh --rebuild
+```
+
+**传统部署：**
+1. 配置环境变量：创建 `.env` 文件（本地开发用 SQLite，无需配置数据库）
+2. 初始化数据库：`cd backend && python init_database.py`（自动创建 SQLite）
+3. 启动后端：`cd backend && python run.py`（开发环境）或使用 Gunicorn（生产环境）
 4. 构建前端：`cd frontend && npm install && npm run build`
-5. 配置Nginx：参考 `nginx.conf` 和 `deploy.md`
+5. 配置Nginx：参考 `nginx.conf` 和 `生产环境部署指南.md`
 
-### 方式四：Docker生产部署（推荐）
+### 方式四：Docker 部署（推荐，本机模拟生产环境）
 
 ```bash
 # 使用 Docker Compose 一键部署
-docker-compose up -d
+./start-docker.sh --rebuild
 ```
 
-详细说明请参考 [`deploy.md`](./deploy.md)
+**特点：**
+- ✅ 自动启动 MySQL 数据库容器
+- ✅ 自动配置 Nginx 反向代理
+- ✅ 数据持久化存储（Docker volume）
+- ✅ 完全模拟生产环境（MySQL + Nginx + Gunicorn）
+- ✅ 本地开发用 SQLite，Docker 用 MySQL，数据独立
+
+**访问地址：**
+- 前端：http://localhost
+- 后端 API：http://localhost:5001/api/health
+
+**详细说明：**
+- 快速启动：参考 [`快速启动.md`](./快速启动.md) 的"方式二：Docker开发模式"
+- 完整部署指南：参考 [`生产环境部署指南.md`](./生产环境部署指南.md)
 
 ## 默认账户
 
@@ -222,13 +242,12 @@ docker-compose up -d
 ### 开发环境
 - Python 3.9+
 - Node.js 18+
-- SQLite（默认，无需额外安装）
+- SQLite（自动创建，无需安装）
 
-### 生产环境
-- Python 3.9+
-- Node.js 18+
-- Nginx 1.18+（用于反向代理）
-- SQLite（默认）或 MySQL 8.0+ / PostgreSQL 13+（推荐）
+### 生产环境（Docker 部署）
+- Docker & Docker Compose
+- MySQL 8.0+（Docker 自动启动）
+- Nginx（Docker 自动启动）
 - Gunicorn（已包含在 requirements.txt）
 
 ## 环境变量配置
@@ -249,13 +268,12 @@ FLASK_DEBUG=False
 # CORS配置（修改为你的前端域名）
 CORS_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
 
-# 数据库配置（如果使用MySQL）
-DB_TYPE=mysql
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=bs_user
-DB_PASSWORD=your_password
-DB_NAME=bs_system
+# 数据库配置
+# 本地开发：使用 SQLite（默认，无需配置）
+DB_TYPE=sqlite
+
+# Docker 部署：自动使用 MySQL（docker-compose.yml 中已配置）
+# 如需修改 MySQL 配置，编辑 docker-compose.yml
 
 # AI服务配置（可选）
 DEEPSEEK_API_KEY=your-deepseek-api-key
@@ -278,20 +296,80 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 ```env
 VUE_APP_API_BASE_URL=/api
-VUE_APP_TITLE=BS系统 - 学生健康管理系统
+VUE_APP_TITLE=运动健康系统 - 学生健康管理系统
 VUE_APP_DEBUG=false
 ```
 
-## 文档说明
+## 📚 文档说明
 
-- **项目结构图**：`项目结构图.md` - 详细的系统架构图和数据流向图（包含Mermaid图表）
-- **快速启动指南**：`快速启动.md` - 开发环境快速启动
-- **部署文档**：`deploy.md` - 生产环境部署详细指南
-- **安装开发说明**：`docs/05-使用安装开发说明.md` - 详细的安装和开发指南
-- **概要设计文档**：`docs/02-概要设计文档.md` - 系统架构和设计概览
-- **详细设计文档**：`docs/03-详细设计文档.md` - 详细的实现设计
-- **用例测试文档**：`docs/04-用例测试文档.md` - 测试用例和测试说明
-- **后期展望**：`docs/06-后期展望.md` - 系统未来发展规划
+### 快速开始文档（推荐先看）
+
+- **`快速启动.md`** - 🚀 **本地开发快速启动指南**
+  - 用途：本地开发环境一键启动
+  - 适用：开发、测试、学习
+  - 内容：本地开发模式和 Docker 开发模式的快速启动方法
+  - 数据库：本地使用 SQLite，Docker 使用 MySQL
+
+- **`README.md`** - 📖 **项目总览文档（当前文档）**
+  - 用途：项目概述、技术栈、快速开始
+  - 适用：了解项目整体情况
+  - 内容：项目介绍、核心功能、技术栈、快速开始
+
+### 部署文档
+
+- **`生产环境部署指南.md`** - 🚀 **完整部署文档（推荐）**
+  - 用途：包含所有部署方式（Docker、传统部署、网络部署）
+  - 适用：生产环境、正式上线、网络部署
+  - 内容：
+    - Docker 一键部署（推荐）
+    - 网络部署（让其他学校学生访问）
+    - 传统手动部署
+    - Nginx 配置、MySQL 配置
+    - 环境变量配置
+    - 监控维护、故障排除
+  - **这是最完整的部署文档，包含所有部署场景**
+
+### 设计文档
+
+- **`项目结构图.md`** - 📊 **系统架构图和数据流图**
+  - 用途：了解系统架构和数据流向
+  - 适用：理解系统设计
+  - 内容：Mermaid 图表展示项目结构和数据流
+
+- **`docs/02-概要设计文档.md`** - 📋 **系统架构和设计概览**
+  - 用途：了解系统整体设计
+  - 适用：理解系统架构
+
+- **`docs/03-详细设计文档.md`** - 📝 **详细的实现设计**
+  - 用途：了解具体实现细节
+  - 适用：深入理解实现
+
+- **`docs/04-用例测试文档.md`** - ✅ **测试用例和测试说明**
+  - 用途：了解测试用例
+  - 适用：测试和验证
+
+- **`docs/05-使用安装开发说明.md`** - 🔧 **详细的安装和开发指南**
+  - 用途：详细的安装和开发步骤
+  - 适用：深入开发
+
+- **`docs/06-后期展望.md`** - 🔮 **系统未来发展规划**
+  - 用途：了解未来发展方向
+  - 适用：规划扩展
+
+### 📋 文档使用建议
+
+**如果你是开发者：**
+1. 先看 `README.md` 了解项目
+2. 看 `快速启动.md` 开始开发
+3. 需要了解架构时看 `项目结构图.md`
+
+**如果你要部署到服务器：**
+1. **快速启动**（本地测试）：看 `快速启动.md` 的"方式二：Docker开发模式"
+2. **完整部署指南**（生产环境）：看 `生产环境部署指南.md`
+   - 包含 Docker 一键部署、网络部署、传统手动部署
+
+**如果你想深入了解：**
+- 看 `docs/` 目录下的设计文档
 
 ## API接口
 
