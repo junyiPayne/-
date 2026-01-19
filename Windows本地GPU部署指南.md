@@ -1,5 +1,7 @@
 # 🚀 Windows 本地 GPU 部署指南（无 Docker）
 
+> **快速参考：** 安装环境 → 解压项目 → 双击 `start-local-gpu.bat` → 访问 http://localhost:8080
+
 ## 📋 前置要求
 
 ### 硬件要求
@@ -361,11 +363,35 @@ output = model(input_tensor)
 
 ---
 
+## 📦 依赖说明
+
+### 基础依赖（requirements.txt）
+
+已包含所有必需依赖（19个）：
+- Flask 相关：Flask, Flask-SQLAlchemy, Flask-Migrate, Flask-JWT-Extended, Flask-CORS, Flask-Marshmallow
+- 工具库：python-dotenv, bcrypt, PyMySQL, cryptography, Werkzeug, requests
+- AI 服务：dashscope
+- 图像处理：Pillow, fpdf2, matplotlib
+
+### GPU 依赖（可选，requirements-gpu.txt）
+
+仅在需要 GPU 功能时安装：
+- torch, torchvision, torchaudio
+
+**安装 GPU 依赖：**
+```powershell
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu117
+# 或
+pip install -r requirements-gpu.txt
+```
+
+---
+
 ## 🎯 快速启动流程
 
 1. ✅ 安装 Python 3.9+ 和 Node.js 18+
 2. ✅ 安装 NVIDIA 驱动
-3. ✅ 解压项目文件
+3. ✅ 解压项目文件（或 Git 克隆）
 4. ✅ 双击 `start-local-gpu.bat`
 5. ✅ 访问 http://localhost:8080
 6. ✅ 配置 Cpolar 内网穿透（可选）
@@ -373,46 +399,24 @@ output = model(input_tensor)
 
 ---
 
-## 📋 文件说明
+## 📋 关键文件
 
-### 启动脚本
 - `start-local-gpu.bat` - 一键启动脚本
 - `stop-local-gpu.bat` - 停止脚本
-
-### 配置文件
 - `backend/run_gpu.py` - GPU 版本后端启动脚本（端口 8000）
-- `frontend/vue.config.gpu.js` - GPU 版本前端配置（代理到 8000 端口）
-
-### GPU 相关
+- `frontend/vue.config.gpu.js` - GPU 版本前端配置
 - `backend/app/utils/gpu_utils.py` - GPU 工具模块
 - `backend/app/routes/gpu_test.py` - GPU 测试路由
-
-### 前端智能 API
-- `frontend/src/api/request.js` - 已配置智能 API 地址检测
+- `frontend/src/api/request.js` - 智能 API 地址检测（自动适配 localhost 和 Cpolar）
 
 ---
 
 ## ✅ 总结
 
-### 部署流程
-
-1. ✅ 安装 Python、Node.js、NVIDIA 驱动
-2. ✅ 解压项目文件
-3. ✅ 双击 `start-local-gpu.bat`
-4. ✅ 访问 http://localhost:8080
-5. ✅ 配置 Cpolar 内网穿透（可选）
-
-### 关键特性
-
-1. **GPU 自动检测**：代码自动检测 GPU，可用时使用 GPU，否则使用 CPU
-2. **智能 API 地址**：前端自动检测访问地址，无需手动配置
-3. **Cpolar 支持**：配合内网穿透工具，自动适配公网访问
-4. **一键启动**：Windows 批处理脚本，双击即可启动
-
-### 外网访问
-
-1. 配置 Cpolar 隧道（映射 `localhost:8080`）
-2. 获取公网地址
-3. 访问公网地址，前端会自动适配 API 地址
+**关键特性：**
+- GPU 自动检测（可用时使用 GPU，否则使用 CPU）
+- 智能 API 地址（前端自动检测访问地址）
+- Cpolar 支持（自动适配公网访问）
+- 一键启动（双击 start-local-gpu.bat）
 
 **🎉 部署完成！现在你的系统已经可以在本地运行，并且可以通过 Cpolar 外网访问了！**

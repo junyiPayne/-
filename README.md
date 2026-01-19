@@ -57,6 +57,11 @@
 - **Docker** - 容器化部署（可选）
 - **Gunicorn** - 生产环境WSGI服务器
 
+### GPU 支持（可选）
+- **PyTorch** - 深度学习框架（GPU 功能需要）
+- **torchvision** - 视觉模型库（ConvNeXt 模型需要）
+- **CUDA** - NVIDIA GPU 计算平台
+
 ## 项目结构（已按启动方式和职责重新梳理）
 
 ```

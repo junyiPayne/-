@@ -18,6 +18,20 @@ Pillow==10.0.0
 fpdf2==2.7.6
 matplotlib==3.8.2
 
-# GPU 支持（PyTorch 已在 Dockerfile.gpu 的基础镜像中包含）
-# torch>=2.0.0  # 已在基础镜像 pytorch/pytorch:2.0.1-cuda11.7-cudnn8-runtime 中包含
-# torchvision>=0.15.0  # 需要在 Dockerfile.gpu 中安装
+# ============================================
+# GPU 支持（可选依赖，仅在使用 GPU 功能时需要）
+# ============================================
+# 
+# Windows 本地部署（需要 GPU）：
+#   取消下面的注释，然后安装 PyTorch CUDA 版本：
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu117
+#
+# Docker 部署（GPU 版本）：
+#   PyTorch 已在 Dockerfile.gpu 的基础镜像中包含，无需单独安装
+#
+# 不使用 GPU 功能：
+#   可以忽略以下依赖，代码会自动使用 CPU
+#
+# torch>=2.0.0
+# torchvision>=0.15.0
+# torchaudio>=2.0.0

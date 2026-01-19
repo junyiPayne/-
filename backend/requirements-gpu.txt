@@ -1,0 +1,20 @@
+# GPU 版本依赖文件
+# 包含所有基础依赖 + GPU 支持依赖
+# 
+# 使用方法：
+#   pip install -r requirements-gpu.txt
+#
+# 或使用国内镜像源：
+#   pip install -r requirements-gpu.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 基础依赖
+-r requirements.txt
+
+# GPU 支持（PyTorch CUDA 版本）
+# Windows 本地部署：使用 CUDA 11.7 版本
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+
+# 注意：安装 PyTorch CUDA 版本时，请使用官方索引：
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu117

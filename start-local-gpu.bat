@@ -52,11 +52,12 @@ call venv\Scripts\activate.bat
 
 REM 检查依赖
 if not exist "venv\Lib\site-packages\flask" (
-    echo 📥 安装后端依赖...
+    echo 📥 安装后端依赖（requirements.txt）...
     pip install -r requirements.txt
     echo.
-    echo 💡 如需 GPU 支持，请安装 PyTorch:
+    echo 💡 如需 GPU 支持，请安装 PyTorch CUDA 版本:
     echo    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu117
+    echo    或使用: pip install -r requirements-gpu.txt
 )
 
 REM 检查数据库
