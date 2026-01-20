@@ -59,6 +59,8 @@ export const useAuthStore = defineStore('auth', () => {
       setUser(response.data.data)
       return response
     } catch (error) {
+      // 如果获取用户信息失败（如token无效），清除认证状态
+      // 错误消息已经在 request.js 拦截器中处理（对于非 /auth/me 的401会显示）
       clearAuth()
       throw error
     }
@@ -78,7 +80,8 @@ export const useAuthStore = defineStore('auth', () => {
     logout,
     fetchUserInfo,
     setToken,
-    setUser
+    setUser,
+    clearAuth
   }
 })
 

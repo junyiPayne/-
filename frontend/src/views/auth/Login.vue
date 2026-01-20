@@ -60,10 +60,39 @@
         </el-form-item>
 
         <el-form-item prop="role" v-if="isRegister">
-          <el-radio-group v-model="formData.role" style="width: 100%; justify-content: center;">
+          <el-radio-group v-model="formData.role" style="width: 100%; justify-content: center;" @change="handleRoleChange">
             <el-radio value="student">学生</el-radio>
             <el-radio value="teacher">教师</el-radio>
           </el-radio-group>
+        </el-form-item>
+
+        <!-- 学生：选择班级 -->
+        <el-form-item prop="class_id" v-if="isRegister && formData.role === 'student'">
+          <el-select
+            v-model="formData.class_id"
+            placeholder="请选择班级"
+            size="large"
+            style="width: 100%"
+            :loading="loadingClassrooms"
+            filterable
+          >
+            <el-option
+              v-for="classroom in availableClassrooms"
+              :key="classroom.id"
+              :label="classroom.name"
+              :value="classroom.id"
+            />
+          </el-select>
+        </el-form-item>
+
+        <!-- 教师：输入班级名称 -->
+        <el-form-item prop="class_name" v-if="isRegister && formData.role === 'teacher'">
+          <el-input
+            v-model="formData.class_name"
+            placeholder="请输入班级名称（将创建新班级）"
+            size="large"
+            prefix-icon="School"
+          />
         </el-form-item>
 
         <el-form-item>
@@ -83,7 +112,7 @@
           {{ isRegister ? '已有账号？去登录' : '没有账号？去注册' }}
         </el-link>
         <div v-if="!isRegister" style="margin-top: 10px; font-size: 12px; color: #999;">
-          <span>默认账户: admin / admin123</span>
+          <span></span>
         </div>
       </div>
     </div>
@@ -96,6 +125,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { register } from '@/api/auth'
 import { getMaintenanceStatus } from '@/api/admin'
+import { getAvailableClassrooms } from '@/api/classrooms'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
@@ -112,8 +142,13 @@ const formData = reactive({
   email: '',
   password: '',
   confirmPassword: '',
-  role: 'student'
+  role: 'student',
+  class_id: null,
+  class_name: ''
 })
+
+const availableClassrooms = ref([])
+const loadingClassrooms = ref(false)
 
 const validatePass2 = (rule, value, callback) => {
   if (value === '') {
@@ -170,7 +205,33 @@ const rules = computed(() => {
       confirmPassword: [
         { required: true, validator: validatePass2, trigger: 'blur' }
       ],
-      role: [{ required: true, message: '请选择角色', trigger: 'change' }]
+      role: [{ required: true, message: '请选择角色', trigger: 'change' }],
+      class_id: [
+        { 
+          required: true, 
+          validator: (rule, value, callback) => {
+            if (formData.role === 'student' && !value) {
+              callback(new Error('请选择班级'))
+            } else {
+              callback()
+            }
+          }, 
+          trigger: 'change' 
+        }
+      ],
+      class_name: [
+        { 
+          required: true, 
+          validator: (rule, value, callback) => {
+            if (formData.role === 'teacher' && !value?.trim()) {
+              callback(new Error('请输入班级名称'))
+            } else {
+              callback()
+            }
+          }, 
+          trigger: 'blur' 
+        }
+      ]
     }
   }
   
@@ -185,12 +246,38 @@ const toggleMode = async () => {
       ElMessage.warning('系统维护中，请耐心等候')
       return
     }
+    // 加载可用班级列表
+    await loadAvailableClassrooms()
   }
   
   isRegister.value = !isRegister.value
   formRef.value?.resetFields()
   formData.role = 'student' // Reset role default
   formData.real_name = '' // Reset real_name
+  formData.class_id = null
+  formData.class_name = ''
+}
+
+// 加载可用班级列表
+const loadAvailableClassrooms = async () => {
+  loadingClassrooms.value = true
+  try {
+    const res = await getAvailableClassrooms()
+    if (res.data && res.data.code === 200) {
+      availableClassrooms.value = res.data.data || []
+    }
+  } catch (error) {
+    console.error('加载班级列表失败:', error)
+    ElMessage.error('加载班级列表失败')
+  } finally {
+    loadingClassrooms.value = false
+  }
+}
+
+// 角色切换时重置班级字段
+const handleRoleChange = () => {
+  formData.class_id = null
+  formData.class_name = ''
 }
 
 // 加载维护状态
@@ -200,7 +287,8 @@ const loadMaintenanceStatus = async () => {
     maintenanceMode.value = response.data.data.maintenance || false
   } catch (error) {
     // 如果获取失败，不影响登录功能，默认为false
-    console.error('获取维护状态失败:', error)
+    // 静默处理错误，不显示错误消息（可能是token问题）
+    console.warn('获取维护状态失败（已忽略）:', error.response?.status || error.message)
     maintenanceMode.value = false
   }
 }
@@ -218,13 +306,22 @@ const handleSubmit = async () => {
       try {
         if (isRegister.value) {
           // Register logic
-          await register({
+          const registerData = {
             username: formData.username,
             real_name: formData.real_name,
             email: formData.email,
             password: formData.password,
             role: formData.role
-          })
+          }
+          
+          // 根据角色添加班级信息
+          if (formData.role === 'student') {
+            registerData.class_id = formData.class_id
+          } else if (formData.role === 'teacher') {
+            registerData.class_name = formData.class_name.trim()
+          }
+          
+          await register(registerData)
           ElMessage.success('注册成功，请登录')
           toggleMode()
         } else {

@@ -2,10 +2,17 @@
 GPU 工具模块
 用于检测和使用 GPU 运行 ConvNeXt 模型
 """
-import torch
 import logging
 
 logger = logging.getLogger(__name__)
+
+# 尝试导入 torch，如果未安装则设置为 None
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    torch = None
 
 def check_gpu_availability():
     """
@@ -27,6 +34,10 @@ def check_gpu_availability():
         'cuda_version': None,
         'gpu_count': 0
     }
+    
+    if not TORCH_AVAILABLE:
+        logger.warning("⚠️ PyTorch 未安装，GPU 功能不可用")
+        return result
     
     try:
         if torch.cuda.is_available():
@@ -51,8 +62,12 @@ def get_device():
     获取可用的设备（GPU 或 CPU）
     
     Returns:
-        torch.device: 设备对象
+        torch.device: 设备对象（如果 torch 未安装则返回 None）
     """
+    if not TORCH_AVAILABLE:
+        logger.warning("⚠️ PyTorch 未安装，无法使用 GPU")
+        return None
+    
     gpu_info = check_gpu_availability()
     
     if gpu_info['available']:
@@ -75,7 +90,13 @@ def load_convnext_model(model_path=None, num_classes=None):
     Returns:
         model: ConvNeXt 模型
         device: 设备对象
+    
+    Raises:
+        ImportError: 如果 PyTorch 或 torchvision 未安装
     """
+    if not TORCH_AVAILABLE:
+        raise ImportError("PyTorch 未安装，请先安装: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu117")
+    
     try:
         import torchvision.models as models
         
@@ -129,9 +150,17 @@ def predict_with_model(model, input_tensor, device=None):
     
     Returns:
         predictions: 预测结果
+    
+    Raises:
+        ImportError: 如果 PyTorch 未安装
     """
+    if not TORCH_AVAILABLE:
+        raise ImportError("PyTorch 未安装，无法进行预测")
+    
     if device is None:
         device = get_device()
+        if device is None:
+            raise ImportError("PyTorch 未安装，无法获取设备")
     
     # 确保输入在正确的设备上
     input_tensor = input_tensor.to(device)
@@ -143,5 +172,8 @@ def predict_with_model(model, input_tensor, device=None):
     
     return predictions
 
-# 初始化时检查 GPU
-_gpu_info = check_gpu_availability()
+# 初始化时检查 GPU（如果 PyTorch 已安装）
+if TORCH_AVAILABLE:
+    _gpu_info = check_gpu_availability()
+else:
+    _gpu_info = {'available': False, 'device': 'cpu', 'device_name': 'CPU', 'cuda_version': None, 'gpu_count': 0}

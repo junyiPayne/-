@@ -29,7 +29,7 @@ def allowed_file(filename):
 @bp.route('/upload', methods=['POST'])
 @login_required
 def upload_image():
-    """上传图片"""
+    """上传图片（临时存储，不存入数据库）"""
     if 'file' not in request.files:
         raise ValidationError("没有文件部分")
     file = request.files['file']
@@ -41,24 +41,104 @@ def upload_image():
         import uuid
         unique_filename = f"{uuid.uuid4().hex}_{filename}"
         
-        upload_folder = os.path.join(current_app.root_path, 'static', 'uploads')
-        if not os.path.exists(upload_folder):
-            os.makedirs(upload_folder)
+        # 使用临时目录存储，不存入数据库
+        temp_folder = os.path.join(current_app.root_path, 'static', 'temp_uploads')
+        if not os.path.exists(temp_folder):
+            os.makedirs(temp_folder)
             
-        file.save(os.path.join(upload_folder, unique_filename))
+        file_path = os.path.join(temp_folder, unique_filename)
+        file.save(file_path)
         
-        # 返回文件URL
-        # 使用API路由来服务图片，避免前端代理配置问题
+        # 返回文件URL和文件路径（用于后续识别和删除）
         file_url = f"/api/daily-log/image/{unique_filename}"
-        return success_response(data={'url': file_url}, message="上传成功")
+        return success_response(data={
+            'url': file_url,
+            'filename': unique_filename,
+            'path': file_path
+        }, message="上传成功（临时存储，保存记录后将自动删除）")
     else:
         raise ValidationError("不支持的文件类型")
 
 @bp.route('/image/<filename>')
 def get_image(filename):
-    """获取图片"""
+    """获取图片（从临时目录或正式目录）"""
+    # 先尝试临时目录
+    temp_folder = os.path.join(current_app.root_path, 'static', 'temp_uploads')
+    temp_path = os.path.join(temp_folder, filename)
+    if os.path.exists(temp_path):
+        return send_from_directory(temp_folder, filename)
+    
+    # 如果临时目录没有，尝试正式目录（兼容旧数据）
     upload_folder = os.path.join(current_app.root_path, 'static', 'uploads')
-    return send_from_directory(upload_folder, filename)
+    upload_path = os.path.join(upload_folder, filename)
+    if os.path.exists(upload_path):
+        return send_from_directory(upload_folder, filename)
+    
+    raise NotFoundError("图片不存在")
+
+@bp.route('/recognize-food', methods=['POST'])
+@login_required
+def recognize_food():
+    """AI识别食物"""
+    data = request.get_json()
+    image_path = data.get('image_path')
+    
+    if not image_path:
+        raise ValidationError("请提供图片路径")
+    
+    # 检查文件是否存在（支持绝对路径和相对路径）
+    if not os.path.exists(image_path):
+        # 尝试从临时目录查找
+        temp_folder = os.path.join(current_app.root_path, 'static', 'temp_uploads')
+        filename = os.path.basename(image_path)
+        temp_path = os.path.join(temp_folder, filename)
+        if os.path.exists(temp_path):
+            image_path = temp_path
+        else:
+            raise NotFoundError("图片文件不存在")
+    
+    # 调用AI识别
+    import sys
+    print("=" * 80, file=sys.stderr)
+    print(f"🍽️ 开始AI识别食物，图片路径: {image_path}", file=sys.stderr)
+    print("=" * 80, file=sys.stderr)
+    try:
+        result = ai_service.recognize_food_from_image(image_path)
+        print("=" * 80, file=sys.stderr)
+        print(f"✅ AI识别完成，结果: {result}", file=sys.stderr)
+        print("=" * 80, file=sys.stderr)
+        return success_response(data=result, message="识别成功")
+    except Exception as e:
+        import traceback
+        print("=" * 80, file=sys.stderr)
+        print(f"❌ 识别失败: {str(e)}", file=sys.stderr)
+        print(traceback.format_exc(), file=sys.stderr)
+        print("=" * 80, file=sys.stderr)
+        raise ValidationError(f"识别失败: {str(e)}")
+
+@bp.route('/delete-temp-image', methods=['POST'])
+@login_required
+def delete_temp_image():
+    """删除临时图片"""
+    data = request.get_json()
+    filename = data.get('filename')
+    
+    if not filename:
+        raise ValidationError("请提供文件名")
+    
+    # 删除临时文件
+    temp_folder = os.path.join(current_app.root_path, 'static', 'temp_uploads')
+    file_path = os.path.join(temp_folder, filename)
+    
+    if os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+            return success_response(message="临时图片已删除")
+        except Exception as e:
+            print(f"删除临时图片失败: {str(e)}")
+            return success_response(message="删除失败，但不影响保存")
+    
+    return success_response(message="文件不存在或已删除")
 
 @bp.route('', methods=['GET'])
 @login_required

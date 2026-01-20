@@ -116,30 +116,23 @@
                   </el-button>
                 </div>
               </el-form-item>
-
-              <!-- Added Food List -->
-              <div v-if="addedFoods.length > 0" style="margin-top: 15px; border-top: 1px dashed #ddd; padding-top: 10px;">
-                <div style="font-size: 13px; color: #606266; margin-bottom: 10px;">今日已添加:</div>
-                <div v-for="(food, index) in addedFoods" :key="index" style="display: flex; justify-content: space-between; align-items: center; background: #fff; padding: 8px; margin-bottom: 5px; border-radius: 4px; border: 1px solid #ebeef5;">
-                  <div>
-                    <span style="font-weight: bold;">{{ food.name }}</span>
-                    <span style="color: #909399; font-size: 12px; margin-left: 8px;">{{ food.weight }}g</span>
-                  </div>
-                  <div style="display: flex; align-items: center;">
-                    <span style="color: #E6A23C; font-weight: bold; margin-right: 10px;">{{ food.calories }} kcal</span>
-                    <el-button type="danger" link size="small" @click="removeFoodItem(index)">
-                      <el-icon><Delete /></el-icon>
-                    </el-button>
-                  </div>
-                </div>
-                <div style="text-align: right; margin-top: 10px; font-weight: bold; color: #409EFF;">
-                  总计: {{ addedFoods.reduce((sum, item) => sum + item.calories, 0) }} kcal
-                </div>
-              </div>
             </div>
 
             <!-- Photo Mode -->
             <div v-if="dietInputMode === 'photo'" style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #eee;">
+              <el-alert
+                type="info"
+                :closable="false"
+                style="margin-bottom: 15px;"
+              >
+                <template #default>
+                  <div style="font-size: 12px;">
+                    📷 <strong>提示：</strong>上传的图片仅用于AI识别，不会保存到数据库。保存记录后图片将自动删除。支持一次上传多张图片，每张图片会单独识别。
+                    请确保图片小于20MB。
+                  </div>
+                </template>
+              </el-alert>
+              
               <el-form-item label="上传图片" label-width="80px">
                 <el-upload
                   v-model:file-list="fileList"
@@ -150,16 +143,53 @@
                   :on-preview="handlePictureCardPreview"
                   :headers="uploadHeaders"
                   :before-upload="beforeUpload"
-                  :limit="1"
+                  :multiple="true"
                 >
                   <el-icon><Plus /></el-icon>
                 </el-upload>
               </el-form-item>
+              
               <div style="margin-left: 80px;">
-                <el-button type="success" plain size="small" disabled>
+                <el-button 
+                  type="success" 
+                  plain 
+                  size="small" 
+                  @click="handleRecognizeAllFoods"
+                  :loading="recognizing"
+                  :disabled="uploadedImages.length === 0"
+                >
                   <el-icon style="margin-right: 5px"><Camera /></el-icon>
-                  调用通义千问视觉API识别 (开发中)
+                  {{ recognizing ? `识别中... (${recognizingProgress}/${uploadedImages.length})` : `AI识别所有图片 (${uploadedImages.length}张)` }}
                 </el-button>
+              </div>
+            </div>
+
+            <!-- 今日已添加食物列表（共享） -->
+            <div v-if="addedFoods.length > 0" style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; border: 1px solid #eee;">
+              <div style="font-size: 14px; color: #606266; margin-bottom: 15px; font-weight: bold;">今日已添加:</div>
+              <div v-for="(food, index) in addedFoods" :key="index" style="display: flex; justify-content: space-between; align-items: center; background: #fff; padding: 12px; margin-bottom: 8px; border-radius: 4px; border: 1px solid #ebeef5;">
+                <div style="flex: 1;">
+                  <div style="font-weight: bold; margin-bottom: 5px;">{{ food.name }}</div>
+                  <div style="display: flex; align-items: center; gap: 15px;">
+                    <span style="color: #909399; font-size: 12px;">{{ food.weight }}g</span>
+                    <span style="color: #909399; font-size: 12px;">热量:</span>
+                    <el-input-number
+                      v-model="food.calories"
+                      :min="0"
+                      :precision="0"
+                      size="small"
+                      style="width: 100px;"
+                      @change="updateDietFormFromList"
+                    />
+                    <span style="color: #909399; font-size: 12px;">kcal</span>
+                  </div>
+                </div>
+                <el-button type="danger" link size="small" @click="removeFoodItem(index)">
+                  <el-icon><Delete /></el-icon>
+                </el-button>
+              </div>
+              <div style="text-align: right; margin-top: 15px; padding-top: 10px; border-top: 1px solid #ddd; font-weight: bold; color: #409EFF; font-size: 16px;">
+                总计: {{ addedFoods.reduce((sum, item) => sum + item.calories, 0) }} kcal
               </div>
             </div>
 
@@ -244,9 +274,9 @@
       </div>
       
       <!-- Chart Section -->
-      <div class="chart-section" style="margin-top: 40px; border-top: 1px solid #eee; padding-top: 20px;">
+      <div class="chart-section" style="margin-top: 40px; border-top: 1px solid #eee; padding-top: 20px; position: relative;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-          <h3 style="color: #606266; margin: 0;">热量趋势分析</h3>
+          <h3 style="color: #606266; margin: 0;">热量趋势分析(点击柱状图可查看AI建议)</h3>
           <el-date-picker
             v-model="chartMonth"
             type="month"
@@ -258,6 +288,43 @@
           />
         </div>
         <div ref="chartRef" style="width: 100%; height: 400px;"></div>
+        
+        <!-- 固定的 Tooltip 弹窗 -->
+        <el-card
+          v-if="showTooltip"
+          class="fixed-tooltip-card"
+          :style="{
+            position: 'fixed',
+            left: tooltipPosition.x + 'px',
+            top: tooltipPosition.y + 'px',
+            zIndex: 10000,
+            width: '500px',
+            maxWidth: '500px',
+            maxHeight: '80vh',
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
+          }"
+          shadow="always"
+          @click.stop
+          body-style="padding: 15px 15px 30px 15px; word-wrap: break-word; word-break: break-word; overflow-wrap: break-word; min-height: 200px;"
+        >
+          <template #header>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 0;">
+              <span style="font-weight: bold;">{{ tooltipData.date }}</span>
+              <el-button
+                text
+                type="danger"
+                size="small"
+                @click="closeTooltip"
+                style="padding: 0; min-height: auto;"
+              >
+                <el-icon><Close /></el-icon>
+              </el-button>
+            </div>
+          </template>
+          <div v-html="tooltipData.content" style="word-wrap: break-word; word-break: break-word; overflow-wrap: break-word; width: 100%; box-sizing: border-box; padding-bottom: 20px;"></div>
+        </el-card>
       </div>
     </el-card>
 
@@ -271,8 +338,8 @@
 import { ref, reactive, onMounted, watch, onUnmounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, InfoFilled, Camera, Warning, Delete } from '@element-plus/icons-vue'
-import { getDailyLog, createOrUpdateLog, getDailyLogs, getStatistics } from '@/api/dailyLog'
+import { Plus, InfoFilled, Camera, Warning, Delete, Close } from '@element-plus/icons-vue'
+import { getDailyLog, createOrUpdateLog, getDailyLogs, getStatistics, recognizeFood, deleteTempImage } from '@/api/dailyLog'
 import { getProfile } from '@/api/profile'
 import { useAuthStore } from '@/stores/auth'
 import * as echarts from 'echarts'
@@ -290,6 +357,12 @@ let pieChartInstance = null
 
 const userWeight = ref(60) // Default weight fallback
 const dietInputMode = ref('search') // 'search' or 'photo'
+
+// Tooltip 相关状态
+const showTooltip = ref(false)
+const tooltipData = ref({ date: '', content: '' })
+const tooltipPosition = ref({ x: 0, y: 0 })
+let logDetailsForTooltip = [] // 存储日志详情用于 tooltip
 
 // Mock Food Database (China Food Composition 2022 subset)
 const FOOD_DATABASE = [
@@ -595,6 +668,9 @@ const targetExpenditure = computed(() => {
 })
 
 const fileList = ref([])
+const uploadedImages = ref([]) // 存储上传的图片信息 { path, filename, url }
+const recognizing = ref(false)
+const recognizingProgress = ref(0)
 
 const uploadHeaders = computed(() => {
   const token = localStorage.getItem('token')
@@ -605,12 +681,15 @@ const uploadHeaders = computed(() => {
 
 const handleUploadSuccess = (response, uploadFile) => {
   if (response.code === 200) {
-    ElMessage.success('上传成功')
-    // 后端返回的是相对路径 /static/uploads/xxx
-    // 在开发环境中，我们需要通过代理访问，或者拼接完整的后端地址
-    // 这里假设 vue.config.js 配置了 /static 的代理，或者我们手动处理
-    // 暂时直接使用返回的 url，但在显示时可能需要处理
     uploadFile.url = response.data.url
+    // 保存图片信息到数组
+    uploadedImages.value.push({
+      path: response.data.path,
+      filename: response.data.filename,
+      url: response.data.url,
+      file: uploadFile
+    })
+    ElMessage.success(`上传成功（${uploadedImages.value.length}张图片）`)
   } else {
     ElMessage.error(response.message || '上传失败')
     const index = fileList.value.indexOf(uploadFile)
@@ -619,7 +698,70 @@ const handleUploadSuccess = (response, uploadFile) => {
 }
 
 const handleRemove = (uploadFile, uploadFiles) => {
-  console.log(uploadFile, uploadFiles)
+  // 从数组中移除对应的图片信息
+  const imageIndex = uploadedImages.value.findIndex(img => img.file === uploadFile)
+  if (imageIndex !== -1) {
+    const imageInfo = uploadedImages.value[imageIndex]
+    // 删除临时图片
+    deleteTempImage(imageInfo.filename).catch(err => {
+      console.error('删除临时图片失败:', err)
+    })
+    uploadedImages.value.splice(imageIndex, 1)
+  }
+}
+
+const handleRecognizeAllFoods = async () => {
+  if (uploadedImages.value.length === 0) {
+    ElMessage.warning('请先上传图片')
+    return
+  }
+  
+  recognizing.value = true
+  recognizingProgress.value = 0
+  
+  try {
+    // 遍历所有上传的图片，逐个识别
+    for (let i = 0; i < uploadedImages.value.length; i++) {
+      const imageInfo = uploadedImages.value[i]
+      recognizingProgress.value = i + 1
+      
+      try {
+        const response = await recognizeFood(imageInfo.path)
+        if (response.data.code === 200) {
+          const foods = response.data.data.foods || []
+          
+          if (foods.length > 0) {
+            // 每张图片识别出的食物都添加到列表（默认每张图片识别一个主要食物）
+            const food = foods[0] // 取第一个识别结果
+            addedFoods.value.push({
+              name: food.name,
+              weight: 100, // 默认100g
+              calories: food.calories // AI返回的热量，可以后续编辑
+            })
+            ElMessage.success(`图片${i + 1}识别成功: ${food.name} (${food.calories}kcal)`)
+          } else {
+            ElMessage.warning(`图片${i + 1}未能识别出食物`)
+          }
+        }
+      } catch (error) {
+        console.error(`图片${i + 1}识别失败:`, error)
+        ElMessage.error(`图片${i + 1}识别失败: ${error.response?.data?.message || '请重试'}`)
+      }
+    }
+    
+    // 更新总热量和描述
+    updateDietFormFromList()
+    
+    if (addedFoods.value.length > 0) {
+      ElMessage.success(`共识别 ${addedFoods.value.length} 种食物，已添加到列表`)
+    }
+  } catch (error) {
+    ElMessage.error('识别过程出错，请重试')
+    console.error('识别失败:', error)
+  } finally {
+    recognizing.value = false
+    recognizingProgress.value = 0
+  }
 }
 
 const handlePictureCardPreview = (uploadFile) => {
@@ -631,8 +773,8 @@ const beforeUpload = (rawFile) => {
   if (rawFile.type !== 'image/jpeg' && rawFile.type !== 'image/png' && rawFile.type !== 'image/gif') {
     ElMessage.error('图片格式必须是 JPG/PNG/GIF!')
     return false
-  } else if (rawFile.size / 1024 / 1024 > 5) {
-    ElMessage.error('图片大小不能超过 5MB!')
+  } else if (rawFile.size / 1024 / 1024 > 20) {
+    ElMessage.error('图片大小不能超过 20MB!')
     return false
   }
   return true
@@ -719,15 +861,9 @@ const loadLog = async () => {
         food_images: log.food_images ? JSON.parse(log.food_images) : []
       })
       
-      // 初始化图片列表
-      if (dietForm.food_images && dietForm.food_images.length > 0) {
-        fileList.value = dietForm.food_images.map((url, index) => ({
-          name: `Image ${index + 1}`,
-          url: url
-        }))
-      } else {
-        fileList.value = []
-      }
+      // 注意：food_images不保存到数据库，所以不需要加载图片
+      fileList.value = []
+      uploadedImages.value = []
 
       Object.assign(exerciseForm, {
         exercise_type: log.exercise_type,
@@ -760,6 +896,7 @@ const loadLog = async () => {
         food_images: []
       })
       fileList.value = []
+      uploadedImages.value = []
       Object.assign(exerciseForm, {
         exercise_type: '',
         exercise_duration: null,
@@ -785,13 +922,9 @@ const loadLog = async () => {
 const handleSave = async () => {
   loading.value = true
   try {
-    // 更新 food_images
-    dietForm.food_images = fileList.value.map(file => {
-      if (file.response && file.response.data && file.response.data.url) {
-        return file.response.data.url
-      }
-      return file.url
-    })
+    // 注意：food_images 不保存到数据库，只是临时用于显示
+    // 清空 food_images，因为图片不存入数据库
+    dietForm.food_images = []
 
     const data = {
       log_date: selectedDate.value,
@@ -801,6 +934,24 @@ const handleSave = async () => {
     }
     await createOrUpdateLog(data)
     ElMessage.success('保存成功')
+    
+    // 保存成功后删除所有临时图片
+    if (uploadedImages.value.length > 0) {
+      const deletePromises = uploadedImages.value.map(img => 
+        deleteTempImage(img.filename).catch(err => {
+          console.error(`删除临时图片 ${img.filename} 失败:`, err)
+          return null // 继续删除其他图片
+        })
+      )
+      
+      await Promise.all(deletePromises)
+      console.log(`已删除 ${uploadedImages.value.length} 张临时图片`)
+      
+      // 清空图片相关状态
+      fileList.value = []
+      uploadedImages.value = []
+    }
+    
     // 保存成功后刷新图表
     initChart()
   } catch (error) {
@@ -825,6 +976,9 @@ const initChart = async () => {
         if (isFormCollapsed.value) {
           isFormCollapsed.value = false
         }
+        
+        // 显示固定的 tooltip
+        showTooltipForDate(params, year, month)
       }
     })
   }
@@ -876,81 +1030,17 @@ const initChart = async () => {
         logDetails.push(log || null)
       }
       
+      // 保存日志详情供 tooltip 使用
+      logDetailsForTooltip = logDetails
+      
       const option = {
         title: {
           text: `${year}年${month}月 热量收支与身体指标`,
           left: 'center'
         },
         tooltip: {
-          trigger: 'axis',
-          axisPointer: { type: 'shadow' },
-          formatter: function (params) {
-            const index = params[0].dataIndex
-            const log = logDetails[index]
-            const date = params[0].axisValue
-            const fullDate = `${year}-${String(month).padStart(2, '0')}-${date}`
-            
-            let html = `<div style="font-weight:bold;margin-bottom:5px;">${fullDate}</div>`
-            
-            params.forEach(param => {
-               let unit = 'kcal'
-               if (param.seriesName === '体重') unit = 'kg'
-               else if (param.seriesName === '腰围' || param.seriesName === '臀围') unit = 'cm'
-               
-               if (param.value != null) {
-                 html += `${param.marker} ${param.seriesName}: ${param.value} ${unit}<br/>`
-               }
-            })
-
-            if (log) {
-              html += `<div style="margin-top:10px;border-top:1px solid #eee;padding-top:5px;">`
-              
-              // Diet
-              html += `<strong>饮食:</strong><br/>`
-              if (log.food_description) {
-                  html += `<span style="font-size:12px;color:#ddd">${log.food_description}</span><br/>`
-              } else {
-                  html += `<span style="font-size:12px;color:#999">无详细描述</span><br/>`
-              }
-              
-              // Exercise
-              html += `<div style="margin-top:5px;"><strong>运动:</strong></div>`
-              if (log.exercise_type) {
-                  html += `<span style="font-size:12px;color:#ddd">${log.exercise_type} (${log.exercise_duration || 0}分钟)</span>`
-              } else {
-                  html += `<span style="font-size:12px;color:#999">无运动记录</span>`
-              }
-              
-              // AI Analysis
-              if (log.ai_risk_assessment || log.ai_suggestions) {
-                  html += `<div style="margin-top:5px;border-top:1px dashed #eee;padding-top:5px;"><strong>AI 分析:</strong></div>`
-                  
-                  if (log.ai_risk_assessment) {
-                      html += `<div style="font-size:12px;color:#F56C6C;margin-bottom:2px;">⚠️ ${log.ai_risk_assessment}</div>`
-                  }
-                  
-                  if (log.ai_suggestions) {
-                      try {
-                          let suggestions = log.ai_suggestions
-                          if (typeof suggestions === 'string') {
-                              suggestions = JSON.parse(suggestions)
-                          }
-                          if (Array.isArray(suggestions)) {
-                              suggestions.forEach(s => {
-                                  html += `<div style="font-size:12px;color:#67C23A;">💡 ${s}</div>`
-                              })
-                          }
-                      } catch (e) {}
-                  }
-              }
-              
-              html += `</div>`
-            } else {
-               html += `<div style="margin-top:10px;color:#999;font-size:12px;">无详细记录</div>`
-            }
-            
-            return html
-          }
+          trigger: 'none', // 禁用默认的 hover tooltip
+          show: false
         },
         legend: {
           data: ['摄入热量', '消耗热量', '推荐摄入', '推荐消耗', '体重', '腰围', '臀围'],
@@ -1066,6 +1156,147 @@ const initChart = async () => {
   }
 }
 
+// 显示固定 tooltip
+const showTooltipForDate = (params, year, month) => {
+  const index = params.dataIndex
+  const log = logDetailsForTooltip[index]
+  const date = params.name
+  const fullDate = `${year}-${String(month).padStart(2, '0')}-${date}`
+  
+  // 构建 tooltip 内容
+  let html = `<div style="font-weight:bold;margin-bottom:8px;white-space:nowrap;">${fullDate}</div>`
+  
+  // 获取所有系列的数据
+  const option = chartInstance.getOption()
+  const series = option.series || []
+  
+  // 定义系列颜色映射
+  const colorMap = {
+    '摄入热量': '#E6A23C',
+    '消耗热量': '#67C23A',
+    '推荐摄入': '#E6A23C',
+    '推荐消耗': '#67C23A',
+    '体重': '#409EFF',
+    '腰围': '#F56C6C',
+    '臀围': '#909399'
+  }
+  
+  // 显示所有数据指标
+  series.forEach(seriesItem => {
+    const value = seriesItem.data[index]
+    if (value != null && value !== 0) {
+      let unit = 'kcal'
+      if (seriesItem.name === '体重') unit = 'kg'
+      else if (seriesItem.name === '腰围' || seriesItem.name === '臀围') unit = 'cm'
+      
+      const color = colorMap[seriesItem.name] || seriesItem.itemStyle?.color || '#666'
+      const marker = `<span style="display:inline-block;width:10px;height:10px;background-color:${color};border-radius:50%;margin-right:5px;vertical-align:middle;"></span>`
+      
+      html += `<div style="white-space:nowrap;margin-bottom:4px;line-height:1.6;">${marker} ${seriesItem.name}: ${value} ${unit}</div>`
+    }
+  })
+  
+  if (log) {
+    html += `<div style="margin-top:12px;border-top:1px solid #eee;padding-top:10px;padding-bottom:5px;word-wrap:break-word;word-break:break-word;overflow-wrap:break-word;box-sizing:border-box;">`
+    
+    // Diet
+    html += `<div style="margin-bottom:8px;"><strong>饮食:</strong></div>`
+    if (log.food_description) {
+      html += `<div style="font-size:12px;color:#666;line-height:1.7;word-wrap:break-word;word-break:break-word;overflow-wrap:break-word;white-space:normal;padding-right:5px;box-sizing:border-box;">${log.food_description}</div>`
+    } else {
+      html += `<div style="font-size:12px;color:#999;">无详细描述</div>`
+    }
+    
+    // Exercise
+    html += `<div style="margin-top:10px;margin-bottom:8px;"><strong>运动:</strong></div>`
+    if (log.exercise_type) {
+      html += `<div style="font-size:12px;color:#666;line-height:1.7;">${log.exercise_type} (${log.exercise_duration || 0}分钟)</div>`
+    } else {
+      html += `<div style="font-size:12px;color:#999;">无运动记录</div>`
+    }
+    
+    // AI Analysis
+    if (log.ai_risk_assessment || log.ai_suggestions) {
+      html += `<div style="margin-top:12px;border-top:1px dashed #ddd;padding-top:12px;padding-bottom:20px;"><strong>AI 分析:</strong></div>`
+      
+      if (log.ai_risk_assessment) {
+        html += `<div style="font-size:12px;color:#F56C6C;margin-top:8px;margin-bottom:8px;line-height:1.8;word-wrap:break-word;word-break:break-word;overflow-wrap:break-word;white-space:normal;padding-right:5px;box-sizing:border-box;">⚠️ ${log.ai_risk_assessment}</div>`
+      }
+      
+      if (log.ai_suggestions) {
+        try {
+          let suggestions = log.ai_suggestions
+          if (typeof suggestions === 'string') {
+            suggestions = JSON.parse(suggestions)
+          }
+          if (Array.isArray(suggestions)) {
+            suggestions.forEach((s, idx) => {
+              const isLast = idx === suggestions.length - 1
+              html += `<div style="font-size:12px;color:#67C23A;margin-top:${idx === 0 ? '8' : '6'}px;margin-bottom:${isLast ? '15' : '0'}px;line-height:1.8;word-wrap:break-word;word-break:break-word;overflow-wrap:break-word;white-space:normal;padding-right:5px;box-sizing:border-box;">💡 ${String(s)}</div>`
+            })
+          }
+        } catch (e) {
+          html += `<div style="font-size:12px;color:#67C23A;margin-top:8px;margin-bottom:10px;line-height:1.8;word-wrap:break-word;word-break:break-word;overflow-wrap:break-word;white-space:normal;padding-right:5px;box-sizing:border-box;">💡 ${String(log.ai_suggestions)}</div>`
+        }
+      }
+    }
+    
+    html += `</div>`
+  } else {
+    html += `<div style="margin-top:10px;color:#999;font-size:12px;">无详细记录</div>`
+  }
+  
+  // 计算位置（基于点击位置）
+  const chartRect = chartRef.value.getBoundingClientRect()
+  const clickX = params.event?.event?.clientX || chartRect.left + chartRect.width / 2
+  const clickY = params.event?.event?.clientY || chartRect.top + chartRect.height / 2
+  
+  // 智能定位
+  const tooltipWidth = 500
+  const maxTooltipHeight = window.innerHeight * 0.8  // 使用视窗高度的 80%
+  let posX = clickX + 20
+  let posY = clickY - maxTooltipHeight / 2
+  
+  // 如果右侧空间不足，显示在左侧
+  if (posX + tooltipWidth > window.innerWidth - 20) {
+    posX = clickX - tooltipWidth - 20
+  }
+  
+  // 如果下方空间不足，向上调整
+  if (posY + maxTooltipHeight > window.innerHeight - 20) {
+    posY = window.innerHeight - maxTooltipHeight - 20
+  }
+  
+  // 确保不超出边界
+  if (posX < 20) posX = 20
+  if (posY < 20) posY = 20
+  
+  tooltipData.value = {
+    date: fullDate,
+    content: html
+  }
+  tooltipPosition.value = { x: posX, y: posY }
+  showTooltip.value = true
+}
+
+// 关闭 tooltip
+const closeTooltip = () => {
+  showTooltip.value = false
+}
+
+// 点击外部关闭 tooltip
+const handleClickOutside = (event) => {
+  // 检查点击是否在 tooltip 卡片内
+  const tooltipCard = document.querySelector('.fixed-tooltip-card')
+  if (showTooltip.value && tooltipCard && !tooltipCard.contains(event.target)) {
+    // 检查点击是否在图表内（图表内的点击应该显示新的 tooltip，不关闭）
+    const chartElement = chartRef.value
+    if (chartElement && !chartElement.contains(event.target)) {
+      closeTooltip()
+    }
+  }
+}
+
 const handleSubmitReport = () => {
   ElMessageBox.confirm('确定要提交当前的健康报告吗？', '提交报告', {
     confirmButtonText: '确定',
@@ -1091,10 +1322,13 @@ onMounted(async () => {
   initChart()
   initPieChart()
   window.addEventListener('resize', handleResize)
+  // 添加点击外部关闭 tooltip 的监听
+  document.addEventListener('click', handleClickOutside)
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
+  document.removeEventListener('click', handleClickOutside)
   if (chartInstance) {
     chartInstance.dispose()
   }

@@ -3,8 +3,10 @@ import { ElMessage } from 'element-plus'
 
 /**
  * 智能检测 API 基础地址
- * - 如果通过 localhost 访问，使用 http://localhost:8000/api
- * - 如果通过公网域名访问，自动使用对应域名的 8000 端口
+ * - 开发环境：使用代理（/api），由 vue.config.js 处理
+ * - 生产环境：根据访问地址自动检测
+ *   - localhost → http://localhost:5001/api（普通版本）或 http://localhost:8000/api（GPU版本）
+ *   - 花生壳/内网穿透域名 → 自动使用对应域名的后端端口
  */
 function getApiBaseURL() {
   // 如果环境变量已配置，优先使用
@@ -12,7 +14,12 @@ function getApiBaseURL() {
     return process.env.VUE_APP_API_BASE_URL
   }
   
-  // 获取当前访问的协议和主机
+  // 开发环境：使用代理（由 vue.config.js 处理）
+  if (process.env.NODE_ENV === 'development') {
+    return '/api'
+  }
+  
+  // 生产环境：根据访问地址自动检测
   const protocol = window.location.protocol // http: 或 https:
   const hostname = window.location.hostname // localhost 或 域名
   const port = window.location.port // 端口号（如果有）
@@ -23,17 +30,53 @@ function getApiBaseURL() {
                       hostname === '0.0.0.0' ||
                       hostname === ''
   
+  // 判断是否为花生壳域名（常见后缀）
+  const isOrayDomain = hostname.includes('.gophp.cn') ||
+                       hostname.includes('.nat123.net') ||
+                       hostname.includes('.oray.com') ||
+                       hostname.includes('.hsk.oray.com') ||
+                       hostname.includes('.vicp.fun') ||
+                       hostname.includes('.cpolar.io') ||
+                       hostname.includes('.ngrok.io') ||
+                       hostname.includes('.natappfree.cc')
+  
   if (isLocalhost) {
-    // 本地访问，使用 localhost:8000
-    return 'http://localhost:8000/api'
-  } else {
-    // 公网域名访问，使用相同域名但端口改为 8000
-    // 如果当前是 80 端口（http）或 443 端口（https），需要显式指定 8000
+    // 本地访问，使用本地后端端口
+    const backendPort = process.env.VUE_APP_BACKEND_PORT || '5001'
+    return `http://localhost:${backendPort}/api`
+  } else if (isOrayDomain) {
+    // 花生壳/内网穿透域名访问
+    // 方案1：如果前端和后端映射到同一个域名，只是端口不同
+    // 例如：前端映射到 xxxx.gophp.cn:80，后端映射到 xxxx.gophp.cn:5001
+    const backendPort = process.env.VUE_APP_BACKEND_PORT || '5001'
+    
+    // 如果当前访问端口是 80 或 443
     if (!port || port === '80' || port === '443') {
-      return `${protocol}//${hostname}:8000/api`
+      // 根据诊断信息：后端映射到外网443端口
+      // 如果前端也通过443访问，后端应该也使用443（相同端口，通过路径区分）
+      // 如果前端通过80访问，后端使用443
+      if (port === '443' || protocol === 'https:') {
+        // 前端通过HTTPS（443）访问，后端也应该是HTTPS（443）
+        // 如果后端映射到443，使用相同端口（不加端口号）
+        // 如果后端映射到其他端口（如5001），使用该端口
+        // 根据诊断信息，后端映射到443，所以使用相同端口
+        return `${protocol}//${hostname}/api`
+      } else {
+        // 前端通过HTTP（80）访问，后端使用HTTPS（443）
+        return `https://${hostname}/api`
+      }
     } else {
-      // 如果已经有端口（可能是内网穿透的自定义端口），替换为 8000
-      return `${protocol}//${hostname}:8000/api`
+      // 如果当前有端口（可能是内网穿透的自定义端口），替换为后端端口
+      // 注意：这里假设前端和后端使用不同的端口映射
+      return `${protocol}//${hostname}:${backendPort}/api`
+    }
+  } else {
+    // 其他公网域名访问（可能是自有域名或其他内网穿透工具）
+    const backendPort = process.env.VUE_APP_BACKEND_PORT || '5001'
+    if (!port || port === '80' || port === '443') {
+      return `${protocol}//${hostname}:${backendPort}/api`
+    } else {
+      return `${protocol}//${hostname}:${backendPort}/api`
     }
   }
 }
@@ -42,6 +85,27 @@ const request = axios.create({
   baseURL: getApiBaseURL(),
   timeout: 150000  // AI生成可能需要较长时间，增加到150秒
 })
+
+// 输出 API 地址用于调试（仅开发环境）
+if (process.env.NODE_ENV === 'development') {
+  const apiBaseURL = getApiBaseURL()
+  const isOrayDomain = window.location.hostname.includes('.gophp.cn') ||
+                       window.location.hostname.includes('.nat123.net') ||
+                       window.location.hostname.includes('.oray.com') ||
+                       window.location.hostname.includes('.hsk.oray.com') ||
+                       window.location.hostname.includes('.vicp.fun') ||
+                       window.location.hostname.includes('.cpolar.io') ||
+                       window.location.hostname.includes('.ngrok.io') ||
+                       window.location.hostname.includes('.natappfree.cc')
+
+  console.log('🔵 API Base URL:', apiBaseURL)
+  console.log('🔵 当前访问地址:', window.location.href)
+  console.log('🔵 Hostname:', window.location.hostname)
+  console.log('🔵 Port:', window.location.port)
+  console.log('🔵 NODE_ENV:', process.env.NODE_ENV)
+  console.log('🔵 VUE_APP_BACKEND_PORT:', process.env.VUE_APP_BACKEND_PORT)
+  console.log('🔵 是否为内网穿透域名:', isOrayDomain ? '是（花生壳/内网穿透）' : '否')
+}
 
 // 请求拦截器
 request.interceptors.request.use(
@@ -101,7 +165,10 @@ request.interceptors.response.use(
       return response
     } else {
       const errorMsg = res?.message || '请求失败'
-      console.error('❌ 响应拦截器 - code不是200:', res?.code, 'message:', errorMsg)
+      // 错误日志仅在开发环境输出
+      if (process.env.NODE_ENV === 'development') {
+        console.error('❌ 响应拦截器 - code不是200:', res?.code, 'message:', errorMsg)
+      }
       // 如果是上传背景图片，显示更详细的错误信息
       const url = response.config?.url || ''
       if (url.includes('/admin/background-image') && (response.config?.method || '').toLowerCase() === 'post') {

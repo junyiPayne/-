@@ -59,6 +59,11 @@ const routes = [
         name: 'Help',
         component: () => import('@/views/help/Help.vue')
       },
+      {
+        path: 'settings',
+        name: 'Settings',
+        component: () => import('@/views/settings/Settings.vue')
+      },
       // Keep statistics for backward compatibility if needed, or redirect
       {
         path: 'statistics',
@@ -77,17 +82,33 @@ router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
   
   // 如果有token但没有用户信息，尝试获取用户信息
-  if (authStore.isAuthenticated && !authStore.user) {
+  // 但只在访问需要认证的路由时才尝试，避免在登录页也发送请求
+  if (authStore.isAuthenticated && !authStore.user && to.meta.requiresAuth) {
     try {
       await authStore.fetchUserInfo()
+      // 获取成功，继续导航
     } catch (error) {
       // 获取用户信息失败，清除认证状态
+      // 注意：对于 /auth/me 的401错误，request.js 已经静默处理了，不会显示错误消息
+      // request.js 也会清除 token 并跳转到登录页，所以这里只需要确保状态一致
       authStore.clearAuth()
-      next('/login')
+      // 如果目标路由需要认证，跳转到登录页
+      if (to.meta.requiresAuth) {
+        next('/login')
+        return
+      }
+      // 如果已经在登录页，允许继续
+      if (to.path === '/login') {
+        next()
+        return
+      }
+      // 其他情况继续导航
+      next()
       return
     }
   }
   
+  // 检查路由权限
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     next('/login')
   } else if (to.path === '/login' && authStore.isAuthenticated) {

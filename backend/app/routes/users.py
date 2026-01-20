@@ -3,7 +3,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
 from app.models.user import User
 from app.models.role import Role
-from sqlalchemy import or_
+from sqlalchemy import or_, case
 from app.utils.decorators import login_required, admin_required
 from app.utils.errors import NotFoundError, ValidationError, PermissionDeniedError
 from app.utils.response import success_response
@@ -25,13 +25,25 @@ def get_users():
     per_page = request.args.get('per_page', 20, type=int)
     search = request.args.get('search', '')
     role_id = request.args.get('role_id', type=int)
+    class_id = request.args.get('class_id', type=int)
     
     query = User.query
     
     # 权限控制
     if current_user.role.code == 'teacher':
-        # 教师只能看到学生
-        query = query.join(Role).filter(Role.code == 'student')
+        # 教师只能看到自己班级的学生
+        if not current_user.class_id:
+            # 如果教师没有班级，返回空列表
+            query = query.filter(User.id == -1)  # 永远不匹配的条件
+        else:
+            student_role = Role.query.filter_by(code='student').first()
+            if student_role:
+                query = query.filter(
+                    User.role_id == student_role.id,
+                    User.class_id == current_user.class_id
+                )
+            else:
+                query = query.filter(User.id == -1)
     elif current_user.role.code == 'admin':
         # 管理员可以看到所有
         pass
@@ -41,22 +53,54 @@ def get_users():
         # 根据需求"学生...数据范围：仅自己"，这里直接返回自己或者空
         query = query.filter(User.id == current_user_id)
     
-    # 搜索过滤
+    # 班级过滤 (如果传入了class_id)
+    if class_id is not None:
+        query = query.filter(User.class_id == class_id)
+    
+    # 搜索过滤（支持用户名、邮箱、真实姓名、班级名称）
     if search:
-        query = query.filter(
-            or_(
-                User.username.like(f'%{search}%'),
-                User.email.like(f'%{search}%'),
-                User.real_name.like(f'%{search}%')
+        from app.models.classroom import Classroom
+        # 先尝试通过班级名称查找班级ID
+        classroom_ids = []
+        classrooms = Classroom.query.filter(Classroom.name.like(f'%{search}%')).all()
+        classroom_ids = [c.id for c in classrooms]
+        
+        if classroom_ids:
+            # 如果找到匹配的班级，搜索用户和班级
+            query = query.filter(
+                or_(
+                    User.username.like(f'%{search}%'),
+                    User.email.like(f'%{search}%'),
+                    User.real_name.like(f'%{search}%'),
+                    User.class_id.in_(classroom_ids)
+                )
             )
-        )
+        else:
+            # 只搜索用户信息
+            query = query.filter(
+                or_(
+                    User.username.like(f'%{search}%'),
+                    User.email.like(f'%{search}%'),
+                    User.real_name.like(f'%{search}%')
+                )
+            )
     
     # 角色过滤 (如果传入了role_id)
     if role_id:
         query = query.filter(User.role_id == role_id)
     
-    # 排序：按添加顺序（旧的在前）
-    query = query.order_by(User.created_at.asc())
+    # 排序：老师优先（role_code='teacher'），然后按添加顺序（旧的在前）
+    # 使用 CASE WHEN 实现老师优先排序
+    teacher_role = Role.query.filter_by(code='teacher').first()
+    if teacher_role:
+        # 如果角色是teacher，排序值为0（优先），否则为1
+        query = query.order_by(
+            case((User.role_id == teacher_role.id, 0), else_=1),
+            User.created_at.asc()
+        )
+    else:
+        # 如果没有teacher角色，按创建时间排序
+        query = query.order_by(User.created_at.asc())
 
     # 分页
     pagination = query.paginate(
@@ -66,7 +110,7 @@ def get_users():
     )
     
     return success_response({
-        'items': [user.to_dict() for user in pagination.items],
+        'items': [user.to_dict(include_role=True, include_classroom=True) for user in pagination.items],
         'total': pagination.total,
         'page': page,
         'per_page': per_page,
@@ -88,25 +132,34 @@ def create_user():
     if data.get('email') and User.query.filter_by(email=data['email']).first():
         raise ValidationError("邮箱已被使用")
     
+    # 验证班级（如果提供）
+    class_id = data.get('class_id')
+    if class_id:
+        from app.models.classroom import Classroom
+        classroom = Classroom.query.get(class_id)
+        if not classroom:
+            raise ValidationError("班级不存在")
+    
     user = User(
         username=data['username'],
         email=data.get('email'),
         real_name=data.get('real_name'),
-        role_id=data.get('role_id')
+        role_id=data.get('role_id'),
+        class_id=class_id
     )
     user.set_password(data['password'])
     
     db.session.add(user)
     db.session.commit()
     
-    return success_response(data=user.to_dict(), message="创建成功")
+    return success_response(data=user.to_dict(include_classroom=True), message="创建成功")
 
 @bp.route('/<int:user_id>', methods=['GET'])
 @login_required
 def get_user(user_id):
     """获取用户详情"""
     user = User.query.get_or_404(user_id)
-    return success_response(data=user.to_dict())
+    return success_response(data=user.to_dict(include_role=True, include_classroom=True))
 
 @bp.route('/<int:user_id>', methods=['PUT'])
 @login_required
@@ -123,10 +176,15 @@ def update_user(user_id):
     
     # 允许修改的情况：
     # 1. 管理员
-    # 2. 自己修改自己
-    # 3. 教师修改学生
+    # 2. 自己修改自己（但不能修改班级）
+    # 3. 教师修改自己班级的学生（但不能修改班级）
     if not (is_admin or user_id == current_user_id or (is_teacher and is_target_student)):
         raise PermissionDeniedError("权限不足")
+    
+    # 教师修改学生时，检查是否是自己班级的学生
+    if is_teacher and is_target_student:
+        if current_user.class_id != user.class_id:
+            raise PermissionDeniedError("只能修改自己班级的学生")
     
     data = request.get_json()
     
@@ -142,13 +200,25 @@ def update_user(user_id):
             raise ValidationError("邮箱已被使用")
         user.email = data['email']
     
-    # 只有管理员可以修改角色
+    # 只有管理员可以修改角色和班级
     if 'role_id' in data and is_admin:
         user.role_id = data['role_id']
     
+    if 'class_id' in data:
+        if not is_admin:
+            raise PermissionDeniedError("只有管理员可以修改班级归属")
+        from app.models.classroom import Classroom
+        class_id = data['class_id']
+        if class_id:
+            # 验证班级是否存在
+            classroom = Classroom.query.get(class_id)
+            if not classroom:
+                raise ValidationError("班级不存在")
+        user.class_id = class_id
+    
     db.session.commit()
     
-    return success_response(data=user.to_dict(), message="更新成功")
+    return success_response(data=user.to_dict(include_role=True, include_classroom=True), message="更新成功")
 
 @bp.route('/<int:user_id>', methods=['DELETE'])
 @login_required
@@ -165,10 +235,15 @@ def delete_user(user_id):
     
     # 允许删除的情况：
     # 1. 管理员
-    # 2. 教师删除学生
+    # 2. 教师删除自己班级的学生
     # 3. 学生删除自己 (根据需求"增删自己的档案与日志")
     if not (is_admin or (is_teacher and is_target_student) or user_id == current_user_id):
         raise PermissionDeniedError("权限不足")
+    
+    # 教师删除学生时，检查是否是自己班级的学生
+    if is_teacher and is_target_student:
+        if current_user.class_id != user.class_id:
+            raise PermissionDeniedError("只能删除自己班级的学生")
     
     # 不能删除自己 (如果是管理员操作) - 但如果是学生注销自己是可以的
     # 这里保留原逻辑：如果是管理员操作，不能删除自己
@@ -209,6 +284,56 @@ def change_password(user_id):
     db.session.commit()
     
     return success_response(message="密码修改成功")
+
+@bp.route('/batch', methods=['PUT'])
+@login_required
+@admin_required
+def batch_update_users():
+    """批量更新用户（仅管理员）"""
+    data = request.get_json()
+    user_ids = data.get('user_ids', [])
+    updates = data.get('updates', {})
+    
+    if not user_ids:
+        raise ValidationError("请选择要更新的用户")
+    
+    if not isinstance(user_ids, list):
+        raise ValidationError("user_ids 必须是数组")
+    
+    # 验证更新字段
+    allowed_fields = ['class_id', 'is_active', 'role_id']
+    for field in updates.keys():
+        if field not in allowed_fields:
+            raise ValidationError(f"不允许更新字段: {field}")
+    
+    # 如果更新 class_id，验证班级是否存在
+    if 'class_id' in updates:
+        class_id = updates['class_id']
+        if class_id is not None:
+            from app.models.classroom import Classroom
+            classroom = Classroom.query.get(class_id)
+            if not classroom:
+                raise NotFoundError("班级不存在")
+    
+    # 批量更新用户
+    updated_count = 0
+    for user_id in user_ids:
+        user = User.query.get(user_id)
+        if not user:
+            continue
+        
+        # 应用更新
+        for field, value in updates.items():
+            setattr(user, field, value)
+        
+        updated_count += 1
+    
+    db.session.commit()
+    
+    return success_response({
+        'updated_count': updated_count,
+        'message': f'成功更新 {updated_count} 个用户'
+    })
 
 @bp.route('/<int:user_id>/reset', methods=['POST'])
 @login_required

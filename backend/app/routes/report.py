@@ -940,9 +940,12 @@ def view_report(report_id):
             # 管理员可以查看所有报告
             pass
         elif current_user.role.code == 'teacher':
-            # 老师只能查看学生的报告
+            # 老师只能查看自己班级的学生的报告
             if report_owner.role.code != 'student':
                 return jsonify({'code': 403, 'message': '只能查看学生的报告'}), 403
+            # 检查是否是同一班级
+            if not current_user.class_id or current_user.class_id != report_owner.class_id:
+                return jsonify({'code': 403, 'message': '只能查看自己班级学生的报告'}), 403
         else:
             # 学生只能查看自己的报告
             if report.user_id != current_user.id:
@@ -986,7 +989,7 @@ def list_reports():
         else:
             reports = Report.query.order_by(Report.updated_at.desc()).all()
     elif current_user.role.code == 'teacher':
-        # 老师只能查看学生的报告
+        # 老师只能查看自己班级的学生的报告
         if target_user_id:
             # 检查目标用户是否是学生
             target_user = User.query.get(target_user_id)
@@ -994,16 +997,26 @@ def list_reports():
                 return jsonify({'code': 404, 'message': '用户不存在'}), 404
             if target_user.role.code != 'student':
                 return jsonify({'code': 403, 'message': '只能查看学生的报告'}), 403
+            # 检查是否是同一班级
+            if not current_user.class_id or current_user.class_id != target_user.class_id:
+                return jsonify({'code': 403, 'message': '只能查看自己班级学生的报告'}), 403
             report = Report.query.filter_by(user_id=target_user_id).first()
             reports = [report] if report else []
         else:
-            # 获取所有学生的报告
-            student_role = Role.query.filter_by(code='student').first()
-            if student_role:
-                student_ids = [u.id for u in User.query.filter_by(role_id=student_role.id).all()]
-                reports = Report.query.filter(Report.user_id.in_(student_ids)).order_by(Report.updated_at.desc()).all()
-            else:
+            # 获取自己班级的所有学生的报告
+            if not current_user.class_id:
                 reports = []
+            else:
+                student_role = Role.query.filter_by(code='student').first()
+                if student_role:
+                    # 只查询自己班级的学生
+                    student_ids = [u.id for u in User.query.filter_by(
+                        role_id=student_role.id,
+                        class_id=current_user.class_id
+                    ).all()]
+                    reports = Report.query.filter(Report.user_id.in_(student_ids)).order_by(Report.updated_at.desc()).all()
+                else:
+                    reports = []
     else:
         # 学生只能查看自己的报告
         if target_user_id and target_user_id != current_user.id:

@@ -1,4 +1,4 @@
-# BS系统 - Dockerfile
+# 运动健康系统 - Dockerfile
 # 多阶段构建，优化镜像大小
 
 # ============================================
@@ -12,7 +12,7 @@ WORKDIR /app/frontend
 COPY frontend/package*.json ./
 
 # 安装依赖（包括开发依赖，因为需要构建）
-RUN npm ci
+RUN npm install
 
 # 复制前端源代码
 COPY frontend/ .
@@ -56,25 +56,9 @@ COPY --from=frontend-builder /app/frontend/dist ./static/frontend
 # 创建必要的目录
 RUN mkdir -p logs instance app/static/uploads app/static/avatars app/static/reports
 
-# 创建初始化脚本（自动初始化数据库）
-RUN echo '#!/bin/bash\n\
-set -e\n\
-echo "=========================================="\n\
-echo "BS系统 - 容器启动"\n\
-echo "=========================================="\n\
-if [ ! -f instance/bs_system.db ]; then\n\
-    echo "📦 初始化数据库..."\n\
-    python init_database.py || {\n\
-        echo "❌ 数据库初始化失败"\n\
-        exit 1\n\
-    }\n\
-    echo "✅ 数据库初始化完成"\n\
-else\n\
-    echo "✅ 数据库已存在，跳过初始化"\n\
-fi\n\
-echo "🚀 启动 Gunicorn 服务器..."\n\
-exec "$@"' > /docker-entrypoint.sh && \
-    chmod +x /docker-entrypoint.sh
+    # 复制并设置初始化脚本（自动初始化数据库）
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
 # 设置环境变量
 ENV FLASK_ENV=production

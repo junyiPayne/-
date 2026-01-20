@@ -1,7 +1,7 @@
 {
   "name": "bs-system-frontend",
   "version": "1.0.0",
-  "description": "BS系统前端",
+  "description": "运动健康系统前端",
   "scripts": {
     "serve": "vue-cli-service serve",
     "build": "vue-cli-service build",

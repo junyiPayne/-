@@ -52,6 +52,41 @@ check_port 8080
 echo -e "${GREEN}📦 启动后端服务...${NC}"
 cd backend
 
+# 本地开发模式：配置数据库
+# 加载 .env 文件中的配置（如果存在）
+if [ -f "../.env" ]; then
+    set -a
+    source ../.env 2>/dev/null || true
+    set +a
+fi
+
+# 使用 SQLite 数据库（本地开发，简单可靠，无需配置）
+echo -e "${GREEN}ℹ️  使用 SQLite 数据库（本地开发，无需 MySQL 服务）${NC}"
+export DB_TYPE=sqlite
+
+export FLASK_ENV=development
+
+# 加载 .env 文件中的其他配置（如 AI 配置）
+if [ -f "../.env" ]; then
+    set -a
+    source ../.env 2>/dev/null || true
+    set +a
+    # 确保 AI 配置被导出
+    export DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+    export QWEN_API_KEY=${QWEN_API_KEY:-}
+    export AI_PROVIDER=${AI_PROVIDER:-deepseek}
+fi
+
+echo -e "${GREEN}   数据库类型: SQLite${NC}"
+echo -e "${GREEN}   数据库文件: backend/instance/bs_system.db${NC}"
+if [ -n "$DEEPSEEK_API_KEY" ] || [ -n "$QWEN_API_KEY" ]; then
+    echo -e "${GREEN}   AI 配置: ✅ 已加载${NC}"
+else
+    echo -e "${YELLOW}   AI 配置: ⚠️  未配置（可选）${NC}"
+fi
+
+echo -e "${GREEN}✅ SQLite 数据库（无需服务，直接使用）${NC}"
+
 # 检查虚拟环境
 if [ ! -d "venv" ]; then
     echo -e "${YELLOW}⚠️  未找到虚拟环境，正在创建...${NC}"
@@ -68,61 +103,86 @@ if [ ! -f "venv/.installed" ]; then
     touch venv/.installed
 fi
 
-# 检查数据库目录是否存在
-if [ ! -d "instance" ]; then
-    mkdir -p instance
-fi
-
 # 确保instance目录存在且有正确权限
 if [ ! -d "instance" ]; then
     mkdir -p instance
 fi
 chmod 755 instance 2>/dev/null || true
 
-# 检查数据库是否初始化
-if [ ! -f "instance/bs_system.db" ]; then
-    echo -e "${YELLOW}🗄️  初始化数据库...${NC}"
-    # 先测试数据库路径配置
-    echo -e "${YELLOW}检查数据库路径配置...${NC}"
-    python3 << 'PYEOF'
+# 检查并初始化数据库（SQLite）
+echo -e "${YELLOW}🗄️  检查数据库...${NC}"
+python3 << PYEOF
 import os
 import sys
 sys.path.insert(0, os.getcwd())
-from app import create_app
+
+# 设置环境变量（确保 Python 进程能访问）
+for key, value in os.environ.items():
+    if key.startswith('DB_') or key in ['FLASK_ENV', 'DEEPSEEK_API_KEY', 'QWEN_API_KEY', 'AI_PROVIDER']:
+        os.environ[key] = value
+
+from app import create_app, db
+from sqlalchemy import inspect, text
+from sqlalchemy.exc import OperationalError
 
 app = create_app()
 db_uri = app.config['SQLALCHEMY_DATABASE_URI']
-instance_path = app.instance_path
 
-print(f"Instance路径: {instance_path}")
-print(f"数据库URI: {db_uri}")
+print(f"数据库类型: SQLite")
+db_path = db_uri.replace('sqlite:///', '')
+print(f"数据库文件: {db_path}")
 
-# 解析数据库文件路径
-if db_uri.startswith('sqlite:///'):
-    db_path = db_uri.replace('sqlite:///', '')
-    print(f"数据库文件路径: {db_path}")
-    print(f"目录是否存在: {os.path.exists(os.path.dirname(db_path))}")
-    print(f"目录可写: {os.access(os.path.dirname(db_path), os.W_OK) if os.path.exists(os.path.dirname(db_path)) else 'N/A'}")
+# 尝试连接数据库并检查状态
+with app.app_context():
+    try:
+        # 测试连接
+        db.session.execute(text("SELECT 1"))
+        inspector = inspect(db.engine)
+        tables = inspector.get_table_names()
+        required_tables = ['users', 'roles', 'system_settings']
+        missing_tables = [t for t in required_tables if t not in tables]
+        
+        if missing_tables:
+            print(f"⚠️  缺少表: {', '.join(missing_tables)}")
+            print("需要初始化数据库")
+            sys.exit(1)
+        else:
+            print(f"✅ 数据库已初始化 ({len(tables)} 个表)")
+            sys.exit(0)
+    except OperationalError as e:
+        error_msg = str(e)
+        print(f"⚠️  数据库连接错误: {error_msg}")
+        print("需要初始化数据库")
+        sys.exit(1)
+    except Exception as e:
+        print(f"⚠️  数据库检查错误: {e}")
+        print("需要初始化数据库")
+        sys.exit(1)
 PYEOF
-    
+
+DB_NEED_INIT=$?
+
+if [ $DB_NEED_INIT -ne 0 ]; then
+    echo -e "${YELLOW}📦 初始化 SQLite 数据库...${NC}"
     if ! python init_database.py; then
         echo -e "${RED}❌ 数据库初始化失败${NC}"
         echo -e "${YELLOW}检查错误信息:${NC}"
         python init_database.py 2>&1 | tail -30
-        echo ""
-        echo -e "${YELLOW}尝试手动修复:${NC}"
-        echo "  cd backend"
-        echo "  source venv/bin/activate"
-        echo "  rm -f instance/bs_system.db"
-        echo "  python init_database.py"
         exit 1
     fi
     echo -e "${GREEN}✅ 数据库初始化完成${NC}"
+else
+    echo -e "${GREEN}✅ 数据库已就绪${NC}"
 fi
 
 # 启动后端（后台运行）
 # run.py会自动设置DATABASE_URL环境变量，使用绝对路径
+# 启动后端（后台运行）
+# 确保所有环境变量都传递给 Python 进程
 echo -e "${GREEN}🚀 启动后端服务器 (端口 5001)...${NC}"
+# 导出所有必要的环境变量
+export DB_TYPE FLASK_ENV
+export DEEPSEEK_API_KEY QWEN_API_KEY AI_PROVIDER SECRET_KEY JWT_SECRET_KEY CORS_ORIGINS
 python run.py > ../backend.log 2>&1 &
 BACKEND_PID=$!
 echo $BACKEND_PID > ../backend.pid
@@ -216,9 +276,6 @@ if [ "$BACKEND_HEALTHY" = false ]; then
     echo -e "${YELLOW}查看详细日志:${NC}"
     echo "   tail -f backend.log"
     echo ""
-    echo -e "${YELLOW}运行诊断脚本:${NC}"
-    echo "   ./check-health.sh"
-    echo ""
     echo -e "${YELLOW}手动检查健康状态:${NC}"
     echo "   curl http://localhost:5001/api/health"
     echo ""
@@ -283,6 +340,5 @@ echo ""
 echo -e "${YELLOW}💡 提示: 如果遇到问题，请查看故障排查章节${NC}"
 echo ""
 echo -e "${YELLOW}🔍 验证后端健康状态:${NC}"
-echo "   ./check-health.sh"
-echo "   或: curl http://localhost:5001/api/health"
+echo "   curl http://localhost:5001/api/health"
 echo ""

@@ -45,3 +45,11 @@ export function resetUser(id) {
   })
 }
 
+export function batchUpdateUsers(data) {
+  return request({
+    url: '/users/batch',
+    method: 'put',
+    data
+  })
+}
+

@@ -80,7 +80,7 @@ def get_health_assessment():
 @bp.route('/prediction', methods=['POST'])
 @login_required
 def get_prediction():
-    """获取AI预测（用于干预工坊）"""
+    """获取AI预测（用于AI体重助手）"""
     import logging
     logger = logging.getLogger(__name__)
     
@@ -100,7 +100,7 @@ def get_prediction():
         
         logger.info(f"🔵 用户档案获取成功: {profile.name if hasattr(profile, 'name') else '未知'}")
         
-        # 获取预测参数（支持干预工坊的详细参数）
+        # 获取预测参数（支持AI体重助手的详细参数）
         calorie_intake = data.get('calorie_intake', profile.bmr or 2000)
         calorie_expenditure = data.get('calorie_expenditure', profile.bmr or 2000)
         weeks = data.get('weeks', 4)
@@ -148,7 +148,7 @@ def get_prediction():
 @bp.route('/daily-plan', methods=['POST'])
 @login_required
 def get_daily_plan():
-    """根据目标增重生成每日饮食和运动建议"""
+    """根据体重管理目标生成每日饮食和运动建议"""
     import logging
     logger = logging.getLogger(__name__)
     
@@ -166,28 +166,57 @@ def get_daily_plan():
         data = request.get_json()
         logger.info(f"🔵 请求数据: {data}")
         
-        # 获取目标增重（斤转公斤）
-        target_weight_gain_jin = data.get('target_weight_gain', 0)  # 用户输入的是斤
-        target_weight_gain_kg = target_weight_gain_jin / 2  # 转换为公斤
+        # 获取目标类型和目标体重变化（斤转公斤）
+        goal_type = data.get('goal_type', 'gain')  # 'gain' 增重 或 'loss' 减重
+        target_weight_change_jin = data.get('target_weight_change', data.get('target_weight_gain', 0))  # 兼容旧字段名
+        
+        # 确保 target_weight_change_jin 是数字
+        try:
+            target_weight_change_jin = float(target_weight_change_jin)
+        except (ValueError, TypeError):
+            raise ValidationError("目标体重变化必须是数字")
+        
+        target_weight_change_kg = target_weight_change_jin / 2  # 转换为公斤
         weeks = data.get('weeks', 4)
         
-        if target_weight_gain_kg <= 0:
-            raise ValidationError("目标增重必须大于0")
+        # 确保 weeks 是数字
+        try:
+            weeks = int(weeks)
+        except (ValueError, TypeError):
+            weeks = 4
+        
+        if target_weight_change_kg <= 0:
+            raise ValidationError(f"目标{'增重' if goal_type == 'gain' else '减重'}必须大于0")
         
         # 获取用户档案
-        profile = UserProfile.query.filter_by(user_id=user_id).first()
+        try:
+            profile = UserProfile.query.filter_by(user_id=user_id).first()
+        except Exception as db_error:
+            logger.error(f"❌ 查询用户档案失败: {str(db_error)}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
+            from app.utils.response import error_response
+            return error_response(message=f"数据库查询失败: {str(db_error)}", code=500)
+        
         if not profile:
-            raise NotFoundError("请先创建用户档案")
+            raise NotFoundError("请先完善个人档案")
         
         # 获取用户近30天的饮食记录
-        end_date = date.today()
-        start_date = end_date - timedelta(days=30)
-        
-        logs = DailyLog.query.filter(
-            DailyLog.user_id == user_id,
-            DailyLog.log_date >= start_date,
-            DailyLog.log_date <= end_date
-        ).order_by(DailyLog.log_date.desc()).all()
+        try:
+            end_date = date.today()
+            start_date = end_date - timedelta(days=30)
+            
+            logs = DailyLog.query.filter(
+                DailyLog.user_id == user_id,
+                DailyLog.log_date >= start_date,
+                DailyLog.log_date <= end_date
+            ).order_by(DailyLog.log_date.desc()).all()
+        except Exception as db_error:
+            logger.error(f"❌ 查询饮食记录失败: {str(db_error)}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
+            # 如果查询失败，使用空列表，不影响后续处理
+            logs = []
         
         # 统计近30天的平均数据
         log_data = {}
@@ -242,16 +271,33 @@ def get_daily_plan():
             }
             logger.info(f"⚠️ 用户没有近30天的记录，使用默认值（基于BMR: {bmr}kcal）")
         
-        logger.info(f"🔵 用户目标增重: {target_weight_gain_kg}kg，计划周期: {weeks}周")
+        goal_text = '增重' if goal_type == 'gain' else '减重'
+        logger.info(f"🔵 用户目标{goal_text}: {target_weight_change_kg}kg，计划周期: {weeks}周")
         
         # 调用AI服务生成每日计划（传入用户档案和饮食记录数据）
-        profile_data = profile.to_dict()
-        daily_plan = ai_service.generate_daily_plan(
-            profile_data,
-            target_weight_gain_kg,
-            weeks,
-            log_data  # 传入近30天的饮食记录统计
-        )
+        try:
+            profile_data = profile.to_dict()
+        except Exception as e:
+            logger.error(f"❌ 转换用户档案失败: {str(e)}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
+            from app.utils.response import error_response
+            return error_response(message=f"处理用户档案失败: {str(e)}", code=500)
+        
+        try:
+            daily_plan = ai_service.generate_daily_plan(
+                profile_data,
+                target_weight_change_kg,
+                weeks,
+                log_data,  # 传入近30天的饮食记录统计
+                goal_type=goal_type  # 传入目标类型
+            )
+        except Exception as ai_error:
+            logger.error(f"❌ AI服务调用失败: {str(ai_error)}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
+            # 不直接返回错误，让降级方案处理
+            raise ai_error
         
         # 检查是否使用AI生成
         is_ai_generated = daily_plan.get('_is_ai_generated', False)
@@ -269,13 +315,25 @@ def get_daily_plan():
         # 移除内部标识字段（不返回给前端，避免混淆）
         daily_plan_clean = {k: v for k, v in daily_plan.items() if not k.startswith('_')}
         
+        logger.info(f"📤 准备返回给前端的数据结构:")
+        logger.info(f"   daily_plan 键: {list(daily_plan_clean.keys())}")
+        logger.info(f"   daily_plan.daily_diet 存在: {'daily_diet' in daily_plan_clean}")
+        logger.info(f"   daily_plan.daily_exercise 存在: {'daily_exercise' in daily_plan_clean}")
+        
+        # 计算目标体重
+        if goal_type == 'gain':
+            target_weight = profile.weight_kg + target_weight_change_kg
+        else:
+            target_weight = profile.weight_kg - target_weight_change_kg
+        
         return success_response(data={
             'daily_plan': daily_plan_clean,
-            'target_weight_gain_kg': target_weight_gain_kg,
-            'target_weight_gain_jin': target_weight_gain_jin,
+            'goal_type': goal_type,
+            'target_weight_change_kg': target_weight_change_kg,
+            'target_weight_change_jin': target_weight_change_jin,
             'weeks': weeks,
             'current_weight': profile.weight_kg,
-            'target_weight': profile.weight_kg + target_weight_gain_kg,
+            'target_weight': target_weight,
             'log_statistics': log_data,  # 返回统计信息供前端显示
             'is_ai_generated': is_ai_generated,  # 明确标识是否使用AI
             'mode': mode,  # 模式标识
@@ -284,11 +342,15 @@ def get_daily_plan():
     except ValidationError as e:
         logger.error(f"❌ 参数验证失败: {str(e)}")
         from app.utils.response import error_response
-        return error_response(message=str(e)), 400
+        return error_response(message=str(e), code=400)
     except NotFoundError as e:
         logger.error(f"❌ 资源未找到: {str(e)}")
         from app.utils.response import error_response
-        return error_response(message=str(e)), 404
+        # 如果是用户档案未找到，返回友好的提示信息
+        error_message = str(e)
+        if "用户档案" in error_message or "个人档案" in error_message or "profile" in error_message.lower():
+            error_message = "请先完善个人档案"
+        return error_response(message=error_message, code=404)
     except Exception as e:
         logger.error(f"❌ 每日计划生成失败: {str(e)}")
         import traceback
@@ -297,26 +359,44 @@ def get_daily_plan():
         
         # 即使出错，也尝试返回模拟数据，确保前端有响应
         try:
-            profile_data = profile.to_dict() if profile else {}
+            # 安全地获取变量（如果它们已定义）
+            local_vars = locals()
+            profile_data = profile.to_dict() if 'profile' in local_vars and profile else {}
+            target_weight_change_kg = local_vars.get('target_weight_change_kg', 1.0)  # 默认1kg
+            target_weight_change_jin = local_vars.get('target_weight_change_jin', 2.0)  # 默认2斤
+            weeks = local_vars.get('weeks', 4)
+            goal_type = local_vars.get('goal_type', 'gain')
+            
             fallback_plan = ai_service._generate_simulation_daily_plan(
                 profile_data,
-                target_weight_gain_kg,
+                target_weight_change_kg,
                 weeks,
-                log_data if 'log_data' in locals() else None
+                log_data if 'log_data' in local_vars else None
             )
             logger.warning("⚠️ 使用降级方案返回模拟数据")
+            
+            # 计算目标体重
+            current_weight = profile.weight_kg if 'profile' in local_vars and profile else 60
+            if goal_type == 'gain':
+                target_weight = current_weight + target_weight_change_kg
+            else:
+                target_weight = current_weight - target_weight_change_kg
+            
             return success_response(data={
                 'daily_plan': fallback_plan,
-                'target_weight_gain_kg': target_weight_gain_kg,
-                'target_weight_gain_jin': target_weight_gain_jin,
+                'goal_type': goal_type,
+                'target_weight_change_kg': target_weight_change_kg,
+                'target_weight_change_jin': target_weight_change_jin,
                 'weeks': weeks,
-                'current_weight': profile.weight_kg if profile else 60,
-                'target_weight': (profile.weight_kg if profile else 60) + target_weight_gain_kg,
-                'log_statistics': log_data if 'log_data' in locals() else {},
+                'current_weight': current_weight,
+                'target_weight': target_weight,
+                'log_statistics': log_data if 'log_data' in local_vars else {},
                 'is_fallback': True  # 标记这是降级数据
             }, message="每日计划生成成功（使用模拟模式）")
         except Exception as fallback_error:
             logger.error(f"❌ 降级方案也失败: {str(fallback_error)}")
+            import traceback
+            logger.error(f"降级方案详细错误: {traceback.format_exc()}")
             from app.utils.response import error_response
-            return error_response(message=f"生成计划失败: {str(e)}"), 500
+            return error_response(message=f"生成计划失败: {str(e)}", code=500)
 

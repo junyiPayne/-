@@ -1,6 +1,6 @@
 """数据库初始化脚本"""
 from app import create_app, db
-from app.models import User, Role, UserProfile, DailyLog, BusinessData
+from app.models import User, Role, UserProfile, DailyLog, BusinessData, Classroom, SystemSetting, UserSettings
 import os
 import shutil
 import glob
@@ -36,20 +36,24 @@ def restore_from_backup(backup_path, target_path):
         return False
 
 def init_database():
-    """初始化数据库 - 优先使用已有数据库或备份"""
+    """初始化数据库 - 自动检测并处理数据库创建和初始化"""
     app = create_app()
     
     # 确保instance目录存在
     instance_path = app.instance_path
     os.makedirs(instance_path, exist_ok=True)
     
-    # 打印数据库路径用于调试
+    # 打印数据库信息用于调试
     db_uri = app.config['SQLALCHEMY_DATABASE_URI']
     print(f"数据库URI: {db_uri}")
     print(f"Instance路径: {instance_path}")
     
-    # 检查是否是SQLite数据库
-    if db_uri.startswith('sqlite:///'):
+    # 判断数据库类型
+    is_sqlite = db_uri.startswith('sqlite:///')
+    is_mysql = 'mysql' in db_uri.lower() or 'pymysql' in db_uri.lower()
+    
+    if is_sqlite:
+        print("📦 数据库类型: SQLite")
         db_path = db_uri.replace('sqlite:///', '')
         
         # 如果路径不是绝对路径，转换为绝对路径
@@ -115,7 +119,7 @@ def init_database():
             except Exception as e:
                 print(f"❌ 创建数据库文件失败: {e}")
                 return
-    
+        
         # 验证最终路径
         final_db_path = app.config['SQLALCHEMY_DATABASE_URI'].replace('sqlite:///', '')
         db_dir = os.path.dirname(final_db_path)
@@ -128,19 +132,132 @@ def init_database():
             file_size = os.path.getsize(final_db_path)
             print(f"数据库文件大小: {file_size} 字节")
     
+    elif is_mysql:
+        print("📦 数据库类型: MySQL")
+        print("ℹ️  注意: MySQL 主要用于 Docker 生产环境，本地开发建议使用 SQLite")
+        print("🔍 检查数据库状态...")
+        
+        # 尝试连接数据库并检查是否存在
+        with app.app_context():
+            try:
+                from sqlalchemy import inspect, text, create_engine
+                from sqlalchemy.exc import OperationalError
+                
+                # 先尝试连接数据库
+                try:
+                    # 测试连接
+                    db.session.execute(text("SELECT 1"))
+                    print("✅ 数据库连接成功")
+                except OperationalError as e:
+                    error_msg = str(e)
+                    print(f"⚠️  数据库连接失败: {error_msg}")
+                    
+                    # 检查是否是数据库不存在的问题
+                    if "Unknown database" in error_msg or "1049" in error_msg:
+                        print("ℹ️  数据库不存在，尝试自动创建...")
+                        
+                        # 尝试创建数据库
+                        try:
+                            # 从连接字符串中提取数据库名称
+                            db_uri = app.config['SQLALCHEMY_DATABASE_URI']
+                            # 解析数据库名称（格式：mysql+pymysql://user:pass@host:port/dbname）
+                            db_name = db_uri.split('/')[-1].split('?')[0]
+                            
+                            # 创建不包含数据库名的连接（连接到 MySQL 服务器）
+                            # 提取基础连接信息
+                            if '@' in db_uri:
+                                base_uri = db_uri.rsplit('/', 1)[0]  # 移除数据库名
+                                # 连接到 MySQL 服务器（不指定数据库）
+                                server_engine = create_engine(base_uri)
+                                
+                                with server_engine.connect() as conn:
+                                    conn.execute(text(f"CREATE DATABASE IF NOT EXISTS `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"))
+                                    conn.commit()
+                                
+                                print(f"✅ 已创建数据库: {db_name}")
+                                
+                                # 关闭旧连接，重新连接数据库
+                                db.session.close()
+                                db.engine.dispose()
+                                # 重新连接（SQLAlchemy 会自动使用新的连接）
+                                db.session.execute(text("SELECT 1"))
+                                print("✅ 数据库连接成功")
+                            else:
+                                raise Exception("无法解析数据库连接字符串")
+                        except Exception as create_error:
+                            print(f"❌ 自动创建数据库失败: {create_error}")
+                            print("   请手动创建数据库:")
+                            print(f"   CREATE DATABASE `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;")
+                            raise
+                    elif "Access denied" in error_msg or "1045" in error_msg:
+                        print("⚠️  数据库访问被拒绝，请检查用户名和密码")
+                        raise
+                    elif "Can't connect" in error_msg or "2003" in error_msg:
+                        print("⚠️  无法连接到 MySQL 服务器，请检查:")
+                        print("   1. MySQL 服务是否运行")
+                        print("   2. DB_HOST 配置是否正确（本地应为 localhost）")
+                        print("   3. MySQL 端口是否正确（默认 3306）")
+                        raise
+                    else:
+                        raise
+                
+                # 检查数据库是否存在（通过检查表）
+                inspector = inspect(db.engine)
+                existing_tables = inspector.get_table_names()
+                
+                if existing_tables:
+                    print(f"✅ 发现已有数据库，包含 {len(existing_tables)} 个表")
+                    print(f"   现有表: {', '.join(existing_tables[:5])}{'...' if len(existing_tables) > 5 else ''}")
+                    print("ℹ️  将使用现有数据库，只创建缺失的表和数据")
+                else:
+                    print("ℹ️  数据库存在但为空，将创建新表")
+            except Exception as e:
+                print(f"⚠️  检查数据库时出错: {e}")
+                print("ℹ️  将尝试继续初始化，如果失败请检查 MySQL 配置")
+    else:
+        print(f"⚠️  未知的数据库类型: {db_uri}")
+    
     with app.app_context():
         # 检查数据库是否已有表（判断是否已初始化）
-        from sqlalchemy import inspect
-        inspector = inspect(db.engine)
-        existing_tables = inspector.get_table_names()
-        
-        if existing_tables:
-            print(f"ℹ️  数据库已包含 {len(existing_tables)} 个表，跳过表创建")
-            print(f"   现有表: {', '.join(existing_tables[:5])}{'...' if len(existing_tables) > 5 else ''}")
-        else:
-            # 创建所有表
-            db.create_all()
-            print("✅ 数据库表创建完成")
+        from sqlalchemy import inspect, text
+        from sqlalchemy.exc import OperationalError
+        try:
+            # 先测试连接
+            db.session.execute(text("SELECT 1"))
+            inspector = inspect(db.engine)
+            existing_tables = inspector.get_table_names()
+            
+            # 检查关键表是否存在
+            required_tables = ['users', 'roles', 'system_settings', 'user_settings']
+            missing_tables = [t for t in required_tables if t not in existing_tables]
+            
+            if existing_tables and len(existing_tables) > 0:
+                # 数据库已存在且有表
+                print(f"📊 数据库状态: 已有数据库，包含 {len(existing_tables)} 个表")
+                if missing_tables:
+                    print(f"⚠️  缺少关键表: {', '.join(missing_tables)}")
+                    print("📦 创建缺失的表...")
+                    db.create_all()
+                    print("✅ 缺失的表已创建")
+                else:
+                    print("✅ 所有关键表已存在")
+                    # 确保所有表都存在（包括新添加的表，但不影响现有数据）
+                    db.create_all()
+                    print("✅ 数据库表结构已更新（如有新表）")
+            else:
+                # 数据库不存在或为空，创建新数据库
+                print("🆕 数据库为空或不存在，创建新数据库和表...")
+                db.create_all()
+                print("✅ 数据库表创建完成")
+        except Exception as e:
+            print(f"⚠️  检查表时出错: {e}")
+            print("📦 尝试创建所有表...")
+            try:
+                db.create_all()
+                print("✅ 数据库表创建完成")
+            except Exception as create_error:
+                print(f"❌ 创建表失败: {create_error}")
+                raise
         
         # 创建角色（如果不存在）
         roles_config = [
@@ -182,6 +299,20 @@ def init_database():
             print("✅ 创建管理员账户: admin / admin123")
         else:
             print("ℹ️  管理员账户已存在")
+        
+        # 初始化系统设置（如果不存在）
+        maintenance_setting = SystemSetting.query.filter_by(key='maintenance_mode').first()
+        if not maintenance_setting:
+            maintenance_setting = SystemSetting(
+                key='maintenance_mode',
+                value='false',
+                description='系统维护模式开关'
+            )
+            db.session.add(maintenance_setting)
+            db.session.commit()
+            print("✅ 初始化系统设置: maintenance_mode")
+        else:
+            print("ℹ️  系统设置已存在")
         
         print("\n✅ 数据库初始化完成！")
 

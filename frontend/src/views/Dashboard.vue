@@ -67,7 +67,7 @@
           <template #header>
             <span>欢迎使用学生健康系统</span>
           </template>
-          <p>这是一个基于Vue 3 + Flask的BS架构管理系统</p>
+          <p>这是一个基于Vue 3 + Flask的运动健康架构管理系统</p>
         </el-card>
       </el-col>
     </el-row>

@@ -12,8 +12,10 @@ export default {
 
 <style>
 #app {
-  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB',
-    'Microsoft YaHei', '微软雅黑', Arial, sans-serif;
+  font-family: var(--user-font-family, 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', '微软雅黑', Arial, sans-serif);
+  font-size: var(--user-font-size, 14px);
+  color: var(--user-font-color, #303133);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   height: 100vh;
@@ -23,6 +25,38 @@ export default {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+}
+
+/* 全局应用字体设置 */
+body {
+  font-family: var(--user-font-family, 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', '微软雅黑', Arial, sans-serif) !important;
+  font-size: var(--user-font-size, 14px) !important;
+  color: var(--user-font-color, #303133) !important;
+}
+
+/* 确保所有文本元素应用字体设置 */
+p, span, div, h1, h2, h3, h4, h5, h6, li, td, th, label, 
+.el-card, .el-card__body, .el-card__header, .el-form-item__label, 
+.el-button, .el-input__inner, .el-textarea__inner, .el-select .el-input__inner,
+.el-menu-item, .el-sub-menu__title, .el-tag, .el-link {
+  font-family: var(--user-font-family, inherit) !important;
+  font-size: var(--user-font-size, 14px) !important;
+  color: var(--user-font-color, #303133) !important;
+}
+
+/* 侧边栏背景色 - 强制应用到所有相关元素 */
+.el-aside,
+.el-aside.sidebar,
+.el-aside .el-menu,
+.el-aside .sidebar-menu {
+  background-color: var(--user-sidebar-color, #fff) !important;
+}
+
+/* 导航栏背景色 - 强制应用到所有相关元素 */
+.el-header,
+.el-header.header {
+  background-color: var(--user-header-color, #304156) !important;
 }
 
 /* 打印样式 */

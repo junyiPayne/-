@@ -22,18 +22,24 @@ from app import create_app
 
 app = create_app()
 
-# 检查 GPU 支持
+# 检查 GPU 支持（使用 gpu_utils 模块）
 try:
-    import torch
-    if torch.cuda.is_available():
-        print(f"✅ GPU 可用: {torch.cuda.get_device_name(0)}")
-        print(f"   CUDA 版本: {torch.version.cuda}")
+    from app.utils.gpu_utils import check_gpu_availability, TORCH_AVAILABLE
+    if TORCH_AVAILABLE:
+        gpu_info = check_gpu_availability()
+        if gpu_info['available']:
+            print(f"✅ GPU 可用: {gpu_info['device_name']}")
+            print(f"   CUDA 版本: {gpu_info['cuda_version']}")
+        else:
+            print("⚠️ GPU 不可用，将使用 CPU")
     else:
-        print("⚠️ GPU 不可用，将使用 CPU")
-except ImportError:
-    print("⚠️ PyTorch 未安装，GPU 功能不可用")
-    print("💡 提示: 如需 GPU 支持，请安装 PyTorch CUDA 版本:")
-    print("   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu117")
+        print("⚠️ PyTorch 未安装，GPU 功能不可用")
+        print("💡 提示: 如需 GPU 支持，请安装 PyTorch CUDA 版本:")
+        print("   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu117")
+        print("   或使用: pip install -r requirements-gpu.txt")
+except Exception as e:
+    print(f"⚠️ GPU 检测失败: {str(e)}")
+    print("💡 提示: 如需 GPU 支持，请安装 PyTorch CUDA 版本")
 
 if __name__ == '__main__':
     # 使用 8000 端口（GPU 版本）
@@ -44,4 +50,6 @@ if __name__ == '__main__':
     print(f"🎮 GPU 状态: http://localhost:{port}/api/gpu/status")
     print("\n按 Ctrl+C 停止服务\n")
     
-    app.run(host='0.0.0.0', port=port, debug=True)
+    # 生产环境关闭debug模式
+    debug_mode = os.environ.get('FLASK_ENV') == 'development'
+    app.run(host='0.0.0.0', port=port, debug=debug_mode)

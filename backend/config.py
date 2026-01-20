@@ -32,15 +32,19 @@ class Config:
         SECRET_KEY = 'dev-secret-key-change-in-production'
     
     # 数据库配置
-    # 优先使用环境变量指定的数据库，否则使用SQLite（开发环境）
+    # 优先使用环境变量指定的数据库，默认使用SQLite（本地开发）
     db_type = os.environ.get('DB_TYPE', 'sqlite')
     if db_type == 'mysql':
+        # MySQL 连接字符串，添加连接池和超时参数
+        db_user = os.environ.get('DB_USER', 'bs_user')
+        db_password = os.environ.get('DB_PASSWORD', 'password')
+        db_host = os.environ.get('DB_HOST', 'localhost')
+        db_port = os.environ.get('DB_PORT', '3306')
+        db_name = os.environ.get('DB_NAME', 'bs_system')
         SQLALCHEMY_DATABASE_URI = (
-            f"mysql+pymysql://{os.environ.get('DB_USER', 'bs_user')}:"
-            f"{os.environ.get('DB_PASSWORD', 'password')}@"
-            f"{os.environ.get('DB_HOST', 'localhost')}:"
-            f"{os.environ.get('DB_PORT', '3306')}/"
-            f"{os.environ.get('DB_NAME', 'bs_system')}?charset=utf8mb4"
+            f"mysql+pymysql://{db_user}:{db_password}@"
+            f"{db_host}:{db_port}/{db_name}"
+            f"?charset=utf8mb4&connect_timeout=10&read_timeout=30&write_timeout=30"
         )
     else:
         # 使用SQLite（不需要MySQL服务）
@@ -59,10 +63,11 @@ class Config:
     SQLALCHEMY_ECHO = False
     # 数据库连接池配置（仅对 MySQL/PostgreSQL 有效）
     # SQLite 不支持连接池配置
+    # 注意：connect_timeout 等参数已在连接字符串中设置
     SQLALCHEMY_ENGINE_OPTIONS = {
         'pool_size': int(os.environ.get('DB_POOL_SIZE', 10)),
         'pool_recycle': int(os.environ.get('DB_POOL_RECYCLE', 3600)),
-        'pool_pre_ping': True,  # 连接前检查连接是否有效
+        'pool_pre_ping': True,  # 连接前检查连接是否有效（重要：自动重连断开的连接）
         'max_overflow': int(os.environ.get('DB_MAX_OVERFLOW', 20))
     }
     
@@ -75,8 +80,15 @@ class Config:
     ITEMS_PER_PAGE = 20
     
     # CORS配置 - 支持环境变量配置多个域名
+    # 格式：多个域名用逗号分隔，如 "http://domain1.com,http://domain2.com"
+    # 特殊值 "*" 表示允许所有域名（⚠️ 仅测试用，生产环境不推荐）
     cors_origins_str = os.environ.get('CORS_ORIGINS', 'http://localhost:8080,http://localhost:3000')
-    CORS_ORIGINS = [origin.strip() for origin in cors_origins_str.split(',') if origin.strip()]
+    if cors_origins_str.strip() == '*':
+        # 允许所有域名（仅测试环境）
+        CORS_ORIGINS = ['*']
+    else:
+        # 解析多个域名
+        CORS_ORIGINS = [origin.strip() for origin in cors_origins_str.split(',') if origin.strip()]
     
     # 文件上传配置
     MAX_CONTENT_LENGTH = int(os.environ.get('MAX_UPLOAD_SIZE', 16 * 1024 * 1024))  # 默认 16MB
@@ -129,7 +141,7 @@ class ProductionConfig(Config):
             file_handler.setLevel(logging.INFO)
             app.logger.addHandler(file_handler)
             app.logger.setLevel(logging.INFO)
-            app.logger.info('BS系统启动')
+            app.logger.info('运动健康系统启动')
 
 class TestingConfig(Config):
     """测试环境配置"""

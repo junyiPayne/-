@@ -6,18 +6,27 @@
         <el-card class="plan-card">
           <template #header>
             <div class="card-header">
-              <span>干预工坊</span>
-              <el-tag type="success" effect="dark">设计方案</el-tag>
+              <span>AI体重助手</span>
+              <el-tag type="success" effect="dark">个人方案模拟</el-tag>
             </div>
           </template>
           
           <el-tabs v-model="activeTab">
-            <!-- 目标增重 -->
-            <el-tab-pane label="目标增重" name="weight-gain">
+            <!-- 体重管理 -->
+            <el-tab-pane label="体重管理（AI）" name="weight-gain">
               <div class="weight-gain-section">
                 <div style="margin-bottom: 20px;">
                   <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 8px; color: #606266; font-weight: 500;">目标增重:</label>
+                    <label style="display: block; margin-bottom: 8px; color: #606266; font-weight: 500;">目标类型:</label>
+                    <el-radio-group v-model="weightGainForm.goalType" style="margin-bottom: 15px;">
+                      <el-radio-button label="gain">我想增重</el-radio-button>
+                      <el-radio-button label="loss">我想减重</el-radio-button>
+                    </el-radio-group>
+                  </div>
+                  <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 8px; color: #606266; font-weight: 500;">
+                      {{ weightGainForm.goalType === 'gain' ? '我想增重' : '我想减重' }}:
+                    </label>
                     <el-input-number 
                       v-model="weightGainForm.targetWeight" 
                       :min="1" 
@@ -29,10 +38,14 @@
                   </div>
                   <div style="margin-bottom: 15px;">
                     <label style="display: block; margin-bottom: 8px; color: #606266; font-weight: 500;">计划周期:</label>
-                    <el-radio-group v-model="weightGainForm.weeks">
+                    <el-radio-group v-model="weightGainForm.weeks" style="display: flex; flex-wrap: wrap; gap: 8px;">
                       <el-radio-button :label="4">4周</el-radio-button>
                       <el-radio-button :label="8">8周</el-radio-button>
                       <el-radio-button :label="12">12周</el-radio-button>
+                      <el-radio-button :label="16">16周</el-radio-button>
+                      <el-radio-button :label="20">20周</el-radio-button>
+                      <el-radio-button :label="24">24周</el-radio-button>
+                      <el-radio-button :label="26">26周（半年）</el-radio-button>
                     </el-radio-group>
                   </div>
                   <div>
@@ -40,12 +53,19 @@
                       type="primary" 
                       @click="handleGenerateDailyPlan"
                       :loading="dailyPlanLoading"
-                      :disabled="!weightGainForm.targetWeight || weightGainForm.targetWeight <= 0"
+                      :disabled="!hasUserProfile || !weightGainForm.targetWeight || weightGainForm.targetWeight <= 0"
+                      :class="{ 'is-disabled-custom': !hasUserProfile }"
                       style="width: 100%;"
                     >
                       <el-icon style="margin-right: 5px"><MagicStick /></el-icon>
-                      {{ dailyPlanLoading ? '正在生成...' : '生成每日计划' }}
+                      <span v-if="!hasUserProfile">请先完成个人档案</span>
+                      <span v-else-if="dailyPlanLoading">正在生成中...请不要走开哦😘</span>
+                      <span v-else>生成每日体重管理计划（AI）</span>
                     </el-button>
+                    <div v-if="!hasUserProfile" style="margin-top: 8px; font-size: 12px; color: #909399; text-align: center;">
+                      <el-icon style="margin-right: 3px;"><InfoFilled /></el-icon>
+                      请先前往"我的档案"页面完善个人档案信息
+                    </div>
                   </div>
                 </div>
                 
@@ -65,6 +85,11 @@
                         <strong v-else style="color: #e6a23c;">
                           📝 使用模拟模式生成（基于规则算法）
                         </strong>
+                        <div v-if="dailyPlanGoalType" style="margin-top: 5px; font-size: 12px; color: #606266;">
+                          目标类型：{{ dailyPlanGoalType === 'gain' ? '增重' : '减重' }} | 
+                          目标{{ dailyPlanGoalType === 'gain' ? '增重' : '减重' }}：{{ weightGainForm.targetWeight }}斤 | 
+                          计划周期：{{ weightGainForm.weeks }}周
+                        </div>
                       </div>
                       <el-tag v-if="dailyPlanMode === 'ai'" type="success" size="small">AI生成</el-tag>
                       <el-tag v-else type="warning" size="small">模拟模式</el-tag>
@@ -205,10 +230,15 @@
               <!-- 预测时长和AI预测按钮 -->
               <div class="action-area" style="margin-top: 20px;">
                 <div style="margin-bottom: 10px; font-size: 14px; color: #606266;">预测时长:</div>
-                <el-radio-group v-model="predictionWeeks" style="width: 100%; margin-bottom: 15px;" @change="updatePrediction">
+                <el-radio-group v-model="predictionWeeks" style="width: 100%; margin-bottom: 15px; display: flex; flex-wrap: wrap; gap: 8px;" @change="updatePrediction">
                   <el-radio-button :label="1">1周</el-radio-button>
                   <el-radio-button :label="4">4周</el-radio-button>
+                  <el-radio-button :label="8">8周</el-radio-button>
                   <el-radio-button :label="12">12周</el-radio-button>
+                  <el-radio-button :label="16">16周</el-radio-button>
+                  <el-radio-button :label="20">20周</el-radio-button>
+                  <el-radio-button :label="24">24周</el-radio-button>
+                  <el-radio-button :label="26">26周（半年）</el-radio-button>
                 </el-radio-group>
                 
                 <el-button 
@@ -254,10 +284,15 @@
               <!-- 预测时长和AI预测按钮 -->
               <div class="action-area" style="margin-top: 20px;">
                 <div style="margin-bottom: 10px; font-size: 14px; color: #606266;">预测时长:</div>
-                <el-radio-group v-model="predictionWeeks" style="width: 100%; margin-bottom: 15px;" @change="updatePrediction">
+                <el-radio-group v-model="predictionWeeks" style="width: 100%; margin-bottom: 15px; display: flex; flex-wrap: wrap; gap: 8px;" @change="updatePrediction">
                   <el-radio-button :label="1">1周</el-radio-button>
                   <el-radio-button :label="4">4周</el-radio-button>
+                  <el-radio-button :label="8">8周</el-radio-button>
                   <el-radio-button :label="12">12周</el-radio-button>
+                  <el-radio-button :label="16">16周</el-radio-button>
+                  <el-radio-button :label="20">20周</el-radio-button>
+                  <el-radio-button :label="24">24周</el-radio-button>
+                  <el-radio-button :label="26">26周（半年）</el-radio-button>
                 </el-radio-group>
                 
                 <el-button 
@@ -292,34 +327,46 @@
           
           <div class="chart-wrapper" style="position: relative;">
             <div ref="chartRef" style="width: 100%; height: 400px;"></div>
-            
-            <!-- 悬浮的风险提示 -->
-            <div v-if="simulationResult && simulationResult.risks && simulationResult.risks.length > 0" 
-                 style="position: absolute; top: 10px; right: 10px; background: rgba(245, 108, 108, 0.1); border: 1px solid #f56c6c; padding: 10px; border-radius: 4px; max-width: 200px;">
-              <div style="color: #f56c6c; font-weight: bold; font-size: 12px; margin-bottom: 5px;">⚠️ 潜在风险</div>
-              <ul style="margin: 0; padding-left: 15px; font-size: 12px; color: #606266;">
-                <li v-for="(risk, idx) in simulationResult.risks" :key="idx">{{ risk }}</li>
-              </ul>
-            </div>
           </div>
 
           <!-- 导出报告区域 -->
-          <div class="export-section" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
-            <div class="ai-suggestions" v-if="simulationResult && simulationResult.suggestions">
-              <h4 style="margin: 0 0 10px 0; color: #409EFF;">AI 专家建议</h4>
-              <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #606266;">
-                <li v-for="(sugg, idx) in simulationResult.suggestions" :key="idx" style="margin-bottom: 5px;">{{ sugg }}</li>
-              </ul>
-            </div>
-            <div v-else style="color: #909399; font-size: 13px;">
-              点击左侧按钮获取 AI 建议
-            </div>
-            
-            <div class="export-controls" style="min-width: 200px; text-align: right;">
-              <el-checkbox v-model="includeAISuggestions" style="margin-right: 15px;">包含 AI 建议</el-checkbox>
-              <el-button type="success" plain @click="exportReport">
-                <el-icon style="margin-right: 5px"><Document /></el-icon> 生成 PDF 报告
-              </el-button>
+          <div class="export-section" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 20px;">
+              <div class="ai-suggestions" style="flex: 1;">
+                <!-- 潜在风险 -->
+                <div v-if="simulationResult && simulationResult.risks && simulationResult.risks.length > 0" style="margin-bottom: 20px;">
+                  <h4 style="margin: 0 0 10px 0; color: #F56C6C; display: flex; align-items: center;">
+                    <el-icon style="margin-right: 5px;"><Warning /></el-icon>
+                    潜在风险
+                  </h4>
+                  <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #F56C6C;">
+                    <li v-for="(risk, idx) in simulationResult.risks" :key="idx" style="margin-bottom: 5px;">{{ risk }}</li>
+                  </ul>
+                </div>
+                
+                <!-- AI专家建议 -->
+                <div v-if="simulationResult && simulationResult.suggestions && simulationResult.suggestions.length > 0">
+                  <h4 style="margin: 0 0 10px 0; color: #409EFF; display: flex; align-items: center;">
+                    <el-icon style="margin-right: 5px;"><MagicStick /></el-icon>
+                    AI 专家建议
+                  </h4>
+                  <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #606266;">
+                    <li v-for="(sugg, idx) in simulationResult.suggestions" :key="idx" style="margin-bottom: 5px;">{{ sugg }}</li>
+                  </ul>
+                </div>
+                
+                <!-- 空状态提示 -->
+                <div v-if="!simulationResult || (!simulationResult.suggestions && !simulationResult.risks)" style="color: #909399; font-size: 13px;">
+                  点击左侧按钮获取 AI 建议
+                </div>
+              </div>
+              
+              <div class="export-controls" style="min-width: 200px; text-align: right; flex-shrink: 0;">
+                <el-checkbox v-model="includeAISuggestions" style="margin-right: 15px;">包含 AI 建议</el-checkbox>
+                <el-button type="success" plain @click="exportReport">
+                  <el-icon style="margin-right: 5px"><Document /></el-icon> 生成 PDF 报告
+                </el-button>
+              </div>
             </div>
           </div>
         </el-card>
@@ -329,14 +376,16 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch, nextTick } from 'vue'
+import { ref, reactive, onMounted, onActivated, watch, nextTick, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { MagicStick, Document, Food, Basketball, Warning, Check } from '@element-plus/icons-vue'
+import { MagicStick, Document, Food, Basketball, Warning, Check, InfoFilled } from '@element-plus/icons-vue'
 import { getProfile } from '@/api/profile'
 import { getDailyLog } from '@/api/dailyLog'
 import request from '@/api/request'
 import * as echarts from 'echarts'
 
+const route = useRoute()
 const activeTab = ref('diet')
 const predictionWeeks = ref(4)
 const loading = ref(false)
@@ -347,16 +396,70 @@ let chartInstance = null
 
 const simulationResult = ref(null)
 const userProfile = ref(null)
+
+// 加载用户档案的函数（可复用）
+const loadUserProfile = async () => {
+  try {
+    const res = await getProfile()
+    if (res.data && res.data.data) {
+      userProfile.value = res.data.data
+      if (userProfile.value.bmr) {
+        dietPlan.calories = Math.round(userProfile.value.bmr * 1.2)
+      }
+    } else {
+      userProfile.value = null
+    }
+  } catch (error) {
+    console.warn('⚠️ 获取用户档案失败，可能尚未创建:', error)
+    userProfile.value = null
+  }
+}
 const linearData = ref([])
 const aiData = ref([])
 const dailyPlan = ref(null)
 const dailyPlanLoading = ref(false)
 const dailyPlanMode = ref(null) // 'ai' 或 'simulation'
 const dailyPlanProvider = ref(null) // 'deepseek' 或 'qwen'
+const dailyPlanGoalType = ref(null) // 'gain' 或 'loss'
 
 const weightGainForm = reactive({
+  goalType: 'gain', // 'gain' 增重 或 'loss' 减重
   targetWeight: 5, // 默认5斤
   weeks: 4
+})
+
+// 检查用户档案是否完善（所有必填字段都有值）
+const hasUserProfile = computed(() => {
+  if (!userProfile.value) {
+    return false
+  }
+  
+  const profile = userProfile.value
+  
+  // 检查所有必填字段是否都有值
+  // 必填字段：gender, age, height_cm, weight_kg（根据 ProfileForm.vue 的 rules）
+  
+  // 检查性别（必须是非空字符串）
+  if (!profile.gender || profile.gender.trim() === '') {
+    return false
+  }
+  
+  // 检查年龄（必须是有效的正数）
+  if (profile.age === null || profile.age === undefined || profile.age <= 0) {
+    return false
+  }
+  
+  // 检查身高（必须是有效的正数，单位：cm）
+  if (profile.height_cm === null || profile.height_cm === undefined || profile.height_cm <= 0) {
+    return false
+  }
+  
+  // 检查体重（必须是有效的正数，单位：kg）
+  if (profile.weight_kg === null || profile.weight_kg === undefined || profile.weight_kg <= 0) {
+    return false
+  }
+  
+  return true
 })
 
 const dietPlan = reactive({
@@ -378,39 +481,49 @@ const exercisePlan = reactive({
 
 // 获取用户档案和今日日志状态
 onMounted(async () => {
-  // 使用 nextTick 确保 DOM 完全渲染后再初始化图表
-  await nextTick()
-  setTimeout(() => {
-    initChart()
-  }, 100)
-  window.addEventListener('resize', handleResize)
-  
   try {
+    // 使用 nextTick 确保 DOM 完全渲染后再初始化图表
+    await nextTick()
+    setTimeout(() => {
+      initChart()
+    }, 100)
+    window.addEventListener('resize', handleResize)
+    
     // 1. Profile
-    const res = await getProfile()
-    if (res.data && res.data.data) {
-      userProfile.value = res.data.data
-      if (userProfile.value.bmr) {
-        dietPlan.calories = Math.round(userProfile.value.bmr * 1.2)
-      }
-    }
+    await loadUserProfile()
     
     // 2. Check Today's Log
-    const today = new Date().toISOString().split('T')[0]
-    const logRes = await getDailyLog(today)
-    if (logRes.data && logRes.data.data) {
-      // 简单判断：如果有摄入热量和运动类型，就算填了
-      const log = logRes.data.data
-      if (log.calorie_intake > 0) {
-        logsFilled.value = true
+    try {
+      const today = new Date().toISOString().split('T')[0]
+      const logRes = await getDailyLog(today)
+      if (logRes.data && logRes.data.data) {
+        // 简单判断：如果有摄入热量和运动类型，就算填了
+        const log = logRes.data.data
+        if (log.calorie_intake > 0) {
+          logsFilled.value = true
+        }
       }
+    } catch (error) {
+      console.warn('获取今日日志失败:', error)
     }
     
     // Initial Linear Prediction
     updatePrediction()
-    
   } catch (error) {
     console.error('Init failed', error)
+  }
+})
+
+// 页面激活时重新加载档案（当用户从"我的档案"页面返回时）
+onActivated(() => {
+  loadUserProfile()
+})
+
+// 监听路由变化，当从其他页面返回时重新加载档案
+watch(() => route.path, (newPath, oldPath) => {
+  // 如果从"我的档案"页面返回，重新加载档案
+  if (oldPath === '/profile' && newPath === '/intervention') {
+    loadUserProfile()
   }
 })
 
@@ -460,22 +573,48 @@ const renderChart = () => {
   }
   
   const weeks = predictionWeeks.value
-  const xAxisData = Array.from({length: weeks + 1}, (_, i) => `第${i}周`)
+  // 根据周数生成x轴数据，如果周数较多则只显示部分标签
+  const xAxisData = Array.from({length: weeks + 1}, (_, i) => {
+    if (i === 0) return '当前'
+    if (weeks <= 12) {
+      return `第${i}周`
+    } else if (weeks <= 20) {
+      // 20周以内，每2周显示一次
+      return i % 2 === 0 ? `第${i}周` : ''
+    } else {
+      // 20周以上，每4周显示一次
+      return i % 4 === 0 ? `第${i}周` : ''
+    }
+  })
   
   const option = {
     tooltip: {
-      trigger: 'axis'
+      trigger: 'axis',
+      formatter: function(params) {
+        let result = params[0].name.replace('当前', '第0周') + '<br/>'
+        params.forEach(item => {
+          result += `${item.seriesName}: ${item.value} kg<br/>`
+        })
+        return result
+      }
     },
     grid: {
       left: '3%',
       right: '4%',
-      bottom: '3%',
+      bottom: weeks > 20 ? '8%' : '3%',
       containLabel: true
     },
     xAxis: {
       type: 'category',
       boundaryGap: false,
-      data: xAxisData
+      data: xAxisData,
+      axisLabel: {
+        rotate: weeks > 20 ? 45 : 0, // 如果周数超过20，旋转标签45度
+        interval: 0, // 显示所有标签（即使为空字符串）
+        formatter: function(value) {
+          return value || '' // 只显示非空标签
+        }
+      }
     },
     yAxis: {
       type: 'value',
@@ -858,9 +997,16 @@ const generateDailyPlan = async () => {
   console.log('🔵 targetWeight 值:', weightGainForm.targetWeight)
   console.log('🔵 targetWeight 类型:', typeof weightGainForm.targetWeight)
   
+  // 检查是否有用户档案
+  if (!hasUserProfile.value) {
+    ElMessage.warning('请先完善个人档案')
+    return
+  }
+  
   if (!weightGainForm.targetWeight || weightGainForm.targetWeight <= 0) {
-    console.warn('⚠️ 目标增重量无效:', weightGainForm.targetWeight)
-    ElMessage.warning('请输入有效的目标增重量')
+    const goalText = weightGainForm.goalType === 'gain' ? '增重' : '减重'
+    console.warn(`⚠️ 目标${goalText}量无效:`, weightGainForm.targetWeight)
+    ElMessage.warning(`请输入有效的目标${goalText}量`)
     return
   }
 
@@ -869,35 +1015,98 @@ const generateDailyPlan = async () => {
   
   try {
     const requestData = {
-      target_weight_gain: weightGainForm.targetWeight,
+      goal_type: weightGainForm.goalType, // 'gain' 或 'loss'
+      target_weight_change: weightGainForm.targetWeight, // 目标体重变化（斤）
       weeks: weightGainForm.weeks
     }
     
     console.log('📤 发送每日计划请求到 /ai/daily-plan:', requestData)
     console.log('📤 请求URL:', '/api/ai/daily-plan')
+    console.log('📤 目标类型:', weightGainForm.goalType === 'gain' ? '增重' : '减重')
     
     const res = await request.post('/ai/daily-plan', requestData)
     
     console.log('📥 收到响应:', res)
     console.log('📥 响应数据:', res.data)
+    console.log('📥 响应数据类型:', typeof res.data)
+    console.log('📥 res.data.code:', res.data?.code)
+    console.log('📥 res.data.data:', res.data?.data)
+    console.log('📥 res.data.data.daily_plan:', res.data?.data?.daily_plan)
     
-    if (res.data && res.data.code === 200) {
-      dailyPlan.value = res.data.data.daily_plan
+    // 检查响应结构
+    if (!res || !res.data) {
+      console.error('❌ 响应格式错误：res 或 res.data 不存在')
+      ElMessage.error('响应格式错误，请检查后端日志')
+      return
+    }
+    
+    if (res.data.code !== 200) {
+      console.error('❌ 响应code不是200:', res.data.code)
+      ElMessage.error(res.data?.message || '生成计划失败')
+      return
+    }
+    
+    if (!res.data.data) {
+      console.error('❌ res.data.data 不存在')
+      ElMessage.error('响应数据为空，请检查后端日志')
+      return
+    }
+    
+    const dailyPlanData = res.data.data.daily_plan
+    console.log('📦 准备设置的 dailyPlan 数据:', dailyPlanData)
+    console.log('📦 dailyPlan 数据类型:', typeof dailyPlanData)
+    console.log('📦 dailyPlan 是否为 null/undefined:', dailyPlanData == null)
+    console.log('📦 dailyPlan 是否为对象:', typeof dailyPlanData === 'object' && dailyPlanData !== null)
+    
+    if (!dailyPlanData) {
+      console.error('❌ daily_plan 数据为空！')
+      console.error('❌ res.data.data 完整内容:', res.data.data)
+      ElMessage.error('后端返回的计划数据为空，请检查后端日志')
+      return
+    }
+    
+    // 强制设置响应式数据（使用 Object.assign 确保响应式）
+    try {
+      dailyPlan.value = JSON.parse(JSON.stringify(dailyPlanData))  // 深拷贝确保响应式
       dailyPlanMode.value = res.data.data.is_ai_generated ? 'ai' : 'simulation'
       dailyPlanProvider.value = res.data.data.provider || null
+      dailyPlanGoalType.value = res.data.data.goal_type || weightGainForm.goalType || 'gain'
       
+      console.log('✅ dailyPlan.value 已设置:', dailyPlan.value)
+      console.log('✅ dailyPlan.value 类型:', typeof dailyPlan.value)
+      console.log('✅ dailyPlan.value 是否为 null:', dailyPlan.value === null)
+      console.log('✅ dailyPlan.value 是否为 undefined:', dailyPlan.value === undefined)
+      console.log('✅ dailyPlanMode.value:', dailyPlanMode.value)
+      console.log('✅ dailyPlanProvider.value:', dailyPlanProvider.value)
+      console.log('✅ dailyPlan.value.daily_diet:', dailyPlan.value?.daily_diet)
+      console.log('✅ dailyPlan.value.daily_exercise:', dailyPlan.value?.daily_exercise)
+      console.log('✅ dailyPlan.value 键列表:', Object.keys(dailyPlan.value || {}))
+      
+      // 强制触发 Vue 更新
+      await nextTick()
+      console.log('✅ nextTick 后 dailyPlan.value:', dailyPlan.value)
+      console.log('✅ nextTick 后 dailyPlan.value 是否为 null:', dailyPlan.value === null)
+      
+      // 再次验证数据
+      if (!dailyPlan.value) {
+        console.error('❌ nextTick 后 dailyPlan.value 仍然是 null/undefined！')
+        ElMessage.error('数据设置失败，请刷新页面重试')
+        return
+      }
+      
+      const goalText = dailyPlanGoalType.value === 'gain' ? '增重' : '减重'
       const message = res.data.data.is_ai_generated
-        ? `每日计划生成成功（AI生成，使用${res.data.data.provider?.toUpperCase() || 'AI'}）`
-        : '每日计划生成成功（模拟模式）'
+        ? `每日${goalText}计划生成成功（AI生成，使用${res.data.data.provider?.toUpperCase() || 'AI'}）`
+        : `每日${goalText}计划生成成功（模拟模式）`
       ElMessage.success(message)
       
       console.log('✅ 每日计划设置成功')
       console.log('📊 生成模式:', dailyPlanMode.value)
       console.log('📊 AI服务商:', dailyPlanProvider.value)
       console.log('📊 计划内容:', dailyPlan.value)
-    } else {
-      console.error('❌ 响应错误:', res.data)
-      ElMessage.error(res.data?.message || '生成计划失败')
+    } catch (e) {
+      console.error('❌ 设置 dailyPlan 时出错:', e)
+      ElMessage.error('数据设置失败: ' + e.message)
     }
   } catch (error) {
     console.error('❌ 生成每日计划失败:', error)
@@ -908,12 +1117,24 @@ const generateDailyPlan = async () => {
       responseData: error.response?.data,
       status: error.response?.status,
       statusText: error.response?.statusText,
-      config: error.config
+      config: error.config,
+      code: error.code,
+      request: error.request
     })
     
-    // 检查是否是网络错误
-    if (!error.response) {
+    // 检查是否是超时错误
+    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      console.error('❌ 请求超时（可能是AI生成时间过长）')
+      ElMessage.warning('AI生成时间较长，请稍等片刻后重试，或检查后端日志确认是否已生成')
+    } else if (error.response?.status === 404) {
+      // 404错误，通常是用户档案未找到
+      const errorMessage = error.response?.data?.message || '请先完善个人档案'
+      console.error('❌ 资源未找到:', errorMessage)
+      ElMessage.warning(errorMessage)
+    } else if (!error.response) {
+      // 检查是否是网络错误
       console.error('❌ 网络错误：请求未到达服务器')
+      console.error('❌ error.request:', error.request)
       ElMessage.error('网络错误：无法连接到服务器，请检查后端服务是否运行')
     } else {
       const errorMessage = error.response?.data?.message || 
@@ -987,7 +1208,13 @@ const generateDailyPlan = async () => {
   color: #F56C6C;
 }
 
-/* 干预工坊专属打印优化 */
+/* 禁用状态的按钮样式 */
+.is-disabled-custom {
+  opacity: 0.6;
+  cursor: not-allowed !important;
+}
+
+/* AI体重助手专属打印优化 */
 @media print {
   .intervention-container {
     padding: 0;

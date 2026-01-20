@@ -28,15 +28,15 @@ proc_name = 'bs-system'
 # 服务器钩子
 def on_starting(server):
     """服务器启动时的钩子"""
-    server.log.info("BS系统正在启动...")
+    server.log.info("运动健康系统正在启动...")
 
 def on_reload(server):
     """重载时的钩子"""
-    server.log.info("BS系统正在重载...")
+    server.log.info("运动健康系统正在重载...")
 
 def when_ready(server):
     """服务器就绪时的钩子"""
-    server.log.info("BS系统已就绪，开始接受连接")
+    server.log.info("运动健康系统已就绪，开始接受连接")
 
 def worker_int(worker):
     """工作进程中断时的钩子"""

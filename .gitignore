@@ -1,6 +1,7 @@
 # System files
 .DS_Store
 Thumbs.db
+.cursor/
 
 # VS Code
 .vscode/
@@ -36,22 +37,30 @@ venv/
 ENV/
 env/
 
-# Flask
+# Flask & App Specific
 instance/
+backend/instance/
 .webassets-cache
+# 忽略误创建的嵌套目录
+backend/app/app/
 
 # Database
 *.sqlite3
 *.db
-backend/instance/*.db
+*.db-journal
+*.backup
 
 # Backend User Content & Generated Files
-backend/static/reports/*
-!backend/static/reports/.gitkeep
-backend/static/uploads/*
-!backend/static/uploads/.gitkeep
-backend/static/avatars/*
-!backend/static/avatars/.gitkeep
+backend/app/static/reports/*
+!backend/app/static/reports/.gitkeep
+backend/app/static/uploads/*
+!backend/app/static/uploads/.gitkeep
+backend/app/static/temp_uploads/
+backend/app/static/avatars/*
+!backend/app/static/avatars/.gitkeep
+# 系统默认资源不忽略
+!backend/app/static/system/
+
 backups/
 
 # Node / Frontend
@@ -62,6 +71,7 @@ frontend/npm-debug.log*
 frontend/yarn-debug.log*
 frontend/yarn-error.log*
 frontend/.eslintcache
+frontend/package-lock.json.backup
 
 # Logs
 *.log
@@ -72,3 +82,15 @@ frontend.log
 *.pid
 backend.pid
 frontend.pid
+
+# Local Development tools & junk
+natapp
+*.zip
+测试图片/
+
+# 忽略根目录及非资源目录下的图片测试文件，但保留项目内必要的图片资源
+/*.jpg
+/*.jpeg
+/*.png
+!浙大logo.png
+

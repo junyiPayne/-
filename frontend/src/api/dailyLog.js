@@ -31,3 +31,19 @@ export function getStatistics(params) {
   })
 }
 
+export function recognizeFood(imagePath) {
+  return request({
+    url: '/daily-log/recognize-food',
+    method: 'post',
+    data: { image_path: imagePath }
+  })
+}
+
+export function deleteTempImage(filename) {
+  return request({
+    url: '/daily-log/delete-temp-image',
+    method: 'post',
+    data: { filename }
+  })
+}
+

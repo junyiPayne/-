@@ -9,6 +9,7 @@ from app import db
 from app.models.user import User
 from app.models.role import Role
 from app.models.system import SystemSetting
+from app.models.classroom import Classroom
 from app.utils.errors import ValidationError, AuthenticationError
 from app.utils.response import success_response
 
@@ -49,6 +50,38 @@ def register():
     allowed_roles = ['student', 'teacher']
     if data['role'] not in allowed_roles:
         raise ValidationError("无效的角色类型")
+    
+    # 验证班级字段（必填）
+    if not data.get('class_id') and not data.get('class_name'):
+        raise ValidationError("班级不能为空")
+    
+    # 处理班级
+    classroom = None
+    role_code = data['role']
+    
+    if role_code == 'teacher':
+        # 教师：需要输入班级名称（创建新班级或使用已存在的班级）
+        class_name = data.get('class_name', '').strip()
+        if not class_name:
+            raise ValidationError("教师注册时必须输入班级名称")
+        
+        # 检查班级是否已存在
+        classroom = Classroom.query.filter_by(name=class_name).first()
+        if not classroom:
+            # 创建新班级
+            classroom = Classroom(name=class_name, description=f"由教师 {real_name} 创建")
+            db.session.add(classroom)
+            db.session.flush()  # 获取班级ID
+    
+    elif role_code == 'student':
+        # 学生：必须选择已存在的班级
+        class_id = data.get('class_id')
+        if not class_id:
+            raise ValidationError("学生注册时必须选择班级")
+        
+        classroom = Classroom.query.get(class_id)
+        if not classroom:
+            raise ValidationError("选择的班级不存在")
 
     # 检查用户名是否已存在
     if User.query.filter_by(username=username).first():
@@ -62,14 +95,15 @@ def register():
     user = User(
         username=username,
         email=data['email'],
-        real_name=real_name
+        real_name=real_name,
+        class_id=classroom.id
     )
     user.set_password(data['password'])
     
     # 分配角色
-    role = Role.query.filter_by(code=data['role']).first()
+    role = Role.query.filter_by(code=role_code).first()
     if not role:
-        raise ValidationError(f"系统未找到角色: {data['role']}")
+        raise ValidationError(f"系统未找到角色: {role_code}")
     user.role_id = role.id
     
     db.session.add(user)
@@ -139,7 +173,7 @@ def login():
         'access_token': access_token,
         'refresh_token': refresh_token,
         'expires_in': 86400,
-        'user': user.to_dict()
+        'user': user.to_dict(include_role=True, include_classroom=True)
     }, "登录成功")
 
 @bp.route('/refresh', methods=['POST'])
@@ -177,5 +211,5 @@ def get_current_user():
     if not user:
         raise AuthenticationError("用户不存在")
     
-    return success_response(data=user.to_dict())
+    return success_response(data=user.to_dict(include_role=True, include_classroom=True))
 

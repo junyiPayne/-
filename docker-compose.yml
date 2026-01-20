@@ -1,4 +1,4 @@
-# BS系统 - Docker Compose 配置
+# 运动健康系统 - Docker Compose 配置
 # 用于快速部署整个系统
 
 name: bs-system
@@ -13,13 +13,17 @@ services:
     restart: unless-stopped
     ports:
       - "5001:5001"
+    # 使用 docker-entrypoint.sh 自动初始化数据库（包括创建新表）
+    # Dockerfile 中已经设置了 ENTRYPOINT，这里不需要覆盖
+    # 如果需要跳过数据库初始化，取消注释下面这行并注释掉 Dockerfile 中的 ENTRYPOINT
+    # entrypoint: ["gunicorn", "-c", "gunicorn.conf.py", "wsgi:app"]
     environment:
       - FLASK_ENV=production
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-in-production}
-      - DB_TYPE=${DB_TYPE:-sqlite}
-      - DB_HOST=${DB_HOST:-db}
-      - DB_PORT=${DB_PORT:-3306}
+      - DB_TYPE=mysql
+      - DB_HOST=db
+      - DB_PORT=3306
       - DB_USER=${DB_USER:-bs_user}
       - DB_PASSWORD=${DB_PASSWORD:-password}
       - DB_NAME=${DB_NAME:-bs_system}
@@ -37,8 +41,10 @@ services:
       - ./backend/run.py:/app/run.py
       - ./backend/init_database.py:/app/init_database.py
       - ./backend/wsgi.py:/app/wsgi.py
+      - ./docker-entrypoint.sh:/docker-entrypoint.sh
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     networks:
       - bs-network
     healthcheck:
@@ -67,9 +73,10 @@ services:
       - bs-network
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpassword}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   # Nginx 反向代理（可选）
   nginx:
